@@ -30,11 +30,20 @@ const Dashboard = () => {
   const [babyData, setBabyData] = useState(null);
   const [recentLogs, setRecentLogs] = useState([]);
   const [alerts, setAlerts] = useState([]); // TODO: wire up real alerts if needed
+  const [dailySummary, setDailySummary] = useState({
+    totalFeedMl: 0,
+    totalSleepMinutes: 0,
+  });
+  const [showAllLogs, setShowAllLogs] = useState(false);
 
   useEffect(() => {
     async function fetchBabyAndLogs() {
       if (!user) return;
       const babies = await getBabiesByParent(user.uid);
+      // Debug: verify babies fetched for this parent
+      // eslint-disable-next-line no-console
+      console.log('Dashboard: babies for parent', user.uid, babies);
+
       if (babies.length > 0) {
         // Type assertion for baby
         const baby = babies[0] as {
@@ -44,14 +53,45 @@ const Dashboard = () => {
           gestationalAge?: number;
           currentWeight?: number;
         };
-        const logs = (await getCareLogsByBaby(baby.id)) as Array<{
+        const logs = (await getCareLogsByBaby(baby.id, user.uid)) as Array<{
           id: string;
           type?: string;
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           timestamp?: any;
           quantity?: number;
           duration?: number;
           medicationGiven?: boolean;
         }>;
+
+        // Debug: verify logs used for summary and recent activity
+        // eslint-disable-next-line no-console
+        console.log('Dashboard: logs for baby', baby.id, logs);
+
+        // Compute today's totals for feed and sleep
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        const todayLogs = logs.filter((log) => {
+          const ts = log.timestamp?.toDate?.() || log.timestamp;
+          if (!ts) return false;
+          const d = new Date(ts);
+          d.setHours(0, 0, 0, 0);
+          return d.getTime() === today.getTime();
+        });
+
+        const totalFeedMl = todayLogs
+          .filter((l) => l.type === 'feeding' && l.quantity)
+          .reduce((sum, l) => sum + (l.quantity || 0), 0);
+
+        const totalSleepMinutes = todayLogs
+          .filter((l) => l.type === 'sleep' && l.duration)
+          .reduce((sum, l) => sum + (l.duration || 0), 0);
+
+        setDailySummary({
+          totalFeedMl,
+          totalSleepMinutes,
+        });
+
         // Find last feed, sleep, medication logs
         const lastFeedLog = logs.find(l => l.type === 'feeding');
         const lastSleepLog = logs.find(l => l.type === 'sleep');
@@ -67,6 +107,16 @@ const Dashboard = () => {
           status: 'good',
           weight: (baby.currentWeight !== undefined ? baby.currentWeight : '') + ' kg',
         });
+
+        // Debug: verify computed summary data
+        // eslint-disable-next-line no-console
+        console.log('Dashboard: computed babyData summary', {
+          name: baby.name,
+          lastFeedLog,
+          lastSleepLog,
+          lastMedicationLog,
+        });
+
         setRecentLogs(logs);
       }
     }
@@ -94,6 +144,17 @@ const Dashboard = () => {
     if (diffH < 1) return 'just now';
     if (diffH === 1) return '1 hour ago';
     return `${diffH} hours ago`;
+  }
+
+  function formatTimestamp(raw: any) {
+    if (!raw) return '';
+    const date = raw.toDate ? raw.toDate() : new Date(raw);
+    return date.toLocaleString(undefined, {
+      hour: '2-digit',
+      minute: '2-digit',
+      day: '2-digit',
+      month: 'short',
+    });
   }
 
   const getStatusColor = (status: string) => {
@@ -185,13 +246,19 @@ const Dashboard = () => {
                     <div className="grid grid-cols-3 gap-4">
                       <div className="text-center p-4 bg-healthcare-blue-light/30 rounded-2xl">
                         <Droplet className="w-6 h-6 text-primary mx-auto mb-2" />
-                        <p className="text-xs text-muted-foreground mb-1">{t('dashboard.lastFeed')}</p>
-                        <p className="font-semibold text-foreground">{babyData.lastFeed}</p>
+                        <p className="text-xs text-muted-foreground mb-1">Total Feed Today</p>
+                        <p className="font-semibold text-foreground">
+                          {dailySummary.totalFeedMl > 0 ? `${dailySummary.totalFeedMl} ml` : 'No logs yet'}
+                        </p>
                       </div>
                       <div className="text-center p-4 bg-healthcare-mint-light/30 rounded-2xl">
                         <Moon className="w-6 h-6 text-healthcare-mint mx-auto mb-2" />
-                        <p className="text-xs text-muted-foreground mb-1">{t('dashboard.lastSleep')}</p>
-                        <p className="font-semibold text-foreground">{babyData.lastSleep}</p>
+                        <p className="text-xs text-muted-foreground mb-1">Total Sleep Today</p>
+                        <p className="font-semibold text-foreground">
+                          {dailySummary.totalSleepMinutes > 0
+                            ? `${(dailySummary.totalSleepMinutes / 60).toFixed(1)} hrs`
+                            : 'No logs yet'}
+                        </p>
                       </div>
                       <div className="text-center p-4 bg-healthcare-peach/30 rounded-2xl">
                         <Baby className="w-6 h-6 text-healthcare-peach-dark mx-auto mb-2" />
@@ -208,6 +275,65 @@ const Dashboard = () => {
                   </CardContent>
                 </Card>
               )}
+
+              {/* Care Logs directly below summary card */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Clock className="w-5 h-5 text-muted-foreground" />
+                    Care Logs
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    {(showAllLogs ? recentLogs : recentLogs.slice(0, 4)).map((log, index) => (
+                      <div
+                        key={index}
+                        className="flex items-center justify-between p-3 bg-secondary/50 rounded-xl"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div
+                            className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                              log.type === 'feeding' ? 'bg-healthcare-blue-light' : log.type === 'sleep' ? 'bg-healthcare-mint-light' : 'bg-healthcare-peach'
+                            }`}
+                          >
+                            {log.type === 'feeding' ? (
+                              <Droplet className="w-5 h-5 text-primary" />
+                            ) : log.type === 'sleep' ? (
+                              <Moon className="w-5 h-5 text-healthcare-mint" />
+                            ) : (
+                              <Baby className="w-5 h-5 text-healthcare-peach-dark" />
+                            )}
+                          </div>
+                          <div>
+                            <p className="font-medium text-foreground capitalize">{log.type}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {formatTimestamp(log.timestamp)}
+                            </p>
+                          </div>
+                        </div>
+                        <span className="text-sm text-muted-foreground">
+                          {log.type === 'feeding' && log.quantity ? `${log.quantity}ml` : ''}
+                          {log.type === 'sleep' && log.duration ? `${log.duration} min` : ''}
+                          {log.type === 'medication' && log.medicationGiven ? 'Medication given' : ''}
+                        </span>
+                      </div>
+                    ))}
+
+                    {recentLogs.length > 4 && (
+                      <div className="pt-2 flex justify-center">
+                        <button
+                          type="button"
+                          onClick={() => setShowAllLogs((prev) => !prev)}
+                          className="text-xs font-medium text-primary hover:underline"
+                        >
+                          {showAllLogs ? 'View less' : `View more (${recentLogs.length - 4} more)`}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
 
               {/* Alerts Section */}
               <Card>
@@ -252,51 +378,6 @@ const Dashboard = () => {
                       </details>
                     );
                   })}
-                </CardContent>
-              </Card>
-
-              {/* Recent Activity */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Clock className="w-5 h-5 text-muted-foreground" />
-                    Recent Activity
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    {recentLogs.map((log, index) => (
-                      <div
-                        key={index}
-                        className="flex items-center justify-between p-3 bg-secondary/50 rounded-xl"
-                      >
-                        <div className="flex items-center gap-3">
-                          <div
-                            className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-                              log.type === 'feeding' ? 'bg-healthcare-blue-light' : log.type === 'sleep' ? 'bg-healthcare-mint-light' : 'bg-healthcare-peach'
-                            }`}
-                          >
-                            {log.type === 'feeding' ? (
-                              <Droplet className="w-5 h-5 text-primary" />
-                            ) : log.type === 'sleep' ? (
-                              <Moon className="w-5 h-5 text-healthcare-mint" />
-                            ) : (
-                              <Baby className="w-5 h-5 text-healthcare-peach-dark" />
-                            )}
-                          </div>
-                          <div>
-                            <p className="font-medium text-foreground capitalize">{log.type}</p>
-                            <p className="text-xs text-muted-foreground">{timeAgo(log.timestamp?.toDate?.() || log.timestamp)}</p>
-                          </div>
-                        </div>
-                        <span className="text-sm text-muted-foreground">
-                          {log.type === 'feeding' && log.quantity ? `${log.quantity}ml` : ''}
-                          {log.type === 'sleep' && log.duration ? `${log.duration} min` : ''}
-                          {log.type === 'medication' && log.medicationGiven ? 'Medication given' : ''}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
                 </CardContent>
               </Card>
             </div>

@@ -42,23 +42,35 @@ export async function getBabiesByParent(uid) {
 
 // CARE LOGS
 export async function addCareLog(logData) {
-  // logData: { babyId, type, ...fields }
+  // logData: { parentId, babyId, type, ...fields }
+  if (!logData.parentId) throw new Error("parentId required");
   if (!logData.babyId || !logData.type) throw new Error("babyId and type required");
+
   return await addDoc(collection(db, "careLogs"), {
     ...logData,
     timestamp: serverTimestamp(),
   });
 }
 
-export async function getCareLogsByBaby(babyId, max = 20) {
+export async function getCareLogsByBaby(babyId, parentId, max = 20) {
   const q = query(
     collection(db, "careLogs"),
-    where("babyId", "==", babyId),
-    orderBy("timestamp", "desc"),
-    limit(max)
+    where("parentId", "==", parentId)
   );
   const snap = await getDocs(q);
-  return snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  // Filter & sort client-side so we don't require a composite index
+  return snap.docs
+    .map(doc => ({ id: doc.id, ...doc.data() }))
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    .filter((doc: any) => doc.babyId === babyId)
+    // newest first, based on Firestore timestamp field
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    .sort((a: any, b: any) => {
+      const ta = a.timestamp?.toMillis?.() ?? 0;
+      const tb = b.timestamp?.toMillis?.() ?? 0;
+      return tb - ta;
+    })
+    .slice(0, max);
 }
 
 // RULES (READ-ONLY)
