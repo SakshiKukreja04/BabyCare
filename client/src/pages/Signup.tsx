@@ -6,10 +6,12 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { toast } from '@/hooks/use-toast';
+import { useAuth } from '@/contexts/AuthContext';
 
 const Signup = () => {
   const { t } = useLanguage();
   const navigate = useNavigate();
+  const { loginWithGoogle, signupWithEmail } = useAuth();
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [formData, setFormData] = useState({
@@ -38,23 +40,45 @@ const Signup = () => {
     }
 
     setIsLoading(true);
-    
-    // Simulate signup
-    setTimeout(() => {
-      setIsLoading(false);
+
+    try {
+      await signupWithEmail(formData.name, formData.email, formData.password);
       toast({
         title: "Welcome to BabyCare! 💙",
         description: "Your account has been created successfully.",
       });
+      // After successful signup, guide user to complete baby profile
       navigate('/baby-profile');
-    }, 1500);
+    } catch (error) {
+      toast({
+        title: "Signup failed",
+        description: error instanceof Error ? error.message : "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const handleGoogleSignup = () => {
-    toast({
-      title: "Google Sign-up",
-      description: "Google authentication would be integrated here.",
-    });
+  const handleGoogleSignup = async () => {
+    setIsLoading(true);
+    try {
+      await loginWithGoogle();
+      toast({
+        title: "Welcome to BabyCare! 💙",
+        description: "Account created with Google.",
+      });
+      // For Google sign-up, also send user to baby profile setup
+      navigate('/baby-profile');
+    } catch (error) {
+      toast({
+        title: "Google Sign-up failed",
+        description: error instanceof Error ? error.message : "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -202,6 +226,7 @@ const Signup = () => {
             variant="outline"
             className="w-full h-12 text-base font-medium"
             onClick={handleGoogleSignup}
+            disabled={isLoading}
           >
             <svg className="w-5 h-5 mr-2" viewBox="0 0 24 24">
               <path

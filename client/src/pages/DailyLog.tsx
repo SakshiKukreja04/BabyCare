@@ -1,4 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { addCareLog, getBabiesByParent } from '@/lib/firestore';
+import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import {
   Droplet,
@@ -22,8 +24,10 @@ import Header from '@/components/layout/Header';
 const DailyLog = () => {
   const { t } = useLanguage();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<'feeding' | 'sleep' | 'medication'>('feeding');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [babyId, setBabyId] = useState(null);
 
   const [feedingData, setFeedingData] = useState({
     time: new Date().toTimeString().slice(0, 5),
@@ -40,23 +44,64 @@ const DailyLog = () => {
     notes: '',
   });
 
+  useEffect(() => {
+    async function fetchBaby() {
+      if (user) {
+        const babies = await getBabiesByParent(user.uid);
+        if (babies.length > 0) setBabyId(babies[0].id);
+      }
+    }
+    fetchBaby();
+  }, [user]);
+
   const tabs = [
     { id: 'feeding' as const, label: t('log.feeding'), icon: Droplet, color: 'bg-healthcare-blue-light', iconColor: 'text-primary' },
     { id: 'sleep' as const, label: t('log.sleep'), icon: Moon, color: 'bg-healthcare-mint-light', iconColor: 'text-healthcare-mint' },
     { id: 'medication' as const, label: t('log.medication'), icon: Pill, color: 'bg-healthcare-peach', iconColor: 'text-healthcare-peach-dark' },
   ];
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
+    if (!babyId) {
+      toast({ title: 'No baby profile found', variant: 'destructive' });
+      return;
+    }
     setIsSubmitting(true);
-    
-    setTimeout(() => {
-      setIsSubmitting(false);
+    try {
+      const babies = await getBabiesByParent(user.uid);
+      const baby = babies.find(b => b.id === babyId);
+      if (!baby) throw new Error('Baby not found');
+      if (activeTab === 'feeding') {
+        await addCareLog({
+          babyId,
+          parentId: user.uid,
+          type: 'feeding',
+          quantity: feedingData.quantity,
+        });
+      } else if (activeTab === 'sleep') {
+        await addCareLog({
+          babyId,
+          parentId: user.uid,
+          type: 'sleep',
+          duration: sleepData.duration * 60, // convert hours to minutes
+        });
+      } else if (activeTab === 'medication') {
+        await addCareLog({
+          babyId,
+          parentId: user.uid,
+          type: 'medication',
+          medicationGiven: medicationData.given,
+        });
+      }
       toast({
-        title: "Log saved! ✨",
+        title: 'Log saved! ✨',
         description: `${activeTab.charAt(0).toUpperCase() + activeTab.slice(1)} entry has been recorded.`,
       });
       navigate('/dashboard');
-    }, 1000);
+    } catch (error) {
+      toast({ title: 'Error saving log', description: error.message, variant: 'destructive' });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const adjustQuantity = (amount: number) => {

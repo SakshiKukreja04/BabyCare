@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { addBaby } from '@/lib/firestore';
+import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { Baby, Calendar, Scale, Clock, ArrowRight, ArrowLeft, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -11,6 +13,7 @@ import Header from '@/components/layout/Header';
 const BabyProfile = () => {
   const { t } = useLanguage();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [step, setStep] = useState(1);
   const [isLoading, setIsLoading] = useState(false);
   const [formData, setFormData] = useState({
@@ -36,15 +39,28 @@ const BabyProfile = () => {
 
   const handleSubmit = async () => {
     setIsLoading(true);
-    
-    setTimeout(() => {
-      setIsLoading(false);
+    try {
+      await addBaby({
+        parentId: user.uid,
+        name: formData.babyName,
+        dob: formData.dateOfBirth,
+        gestationalAge: Number(formData.gestationalAge),
+        currentWeight: Number(formData.currentWeight),
+      });
       toast({
         title: "Profile Saved! 🎉",
         description: `Welcome ${formData.babyName} to BabyCare!`,
       });
       navigate('/dashboard');
-    }, 1500);
+    } catch (error) {
+      toast({
+        title: "Error saving profile",
+        description: error.message,
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const renderStep = () => {

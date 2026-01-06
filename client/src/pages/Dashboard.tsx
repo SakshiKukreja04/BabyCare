@@ -1,4 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { getCareLogsByBaby, addCareLog, getBabiesByParent } from '@/lib/firestore';
+import { useAuth } from '@/contexts/AuthContext';
 import { Link } from 'react-router-dom';
 import {
   Baby,
@@ -16,7 +18,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useLanguage } from '@/contexts/LanguageContext';
-import Header from '@/components/layout/Header';
+import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import NutritionAwarenessCard from '@/components/dashboard/NutritionAwarenessCard';
 import RuleExplanationModal from '@/components/dashboard/RuleExplanationModal';
 import MoodCheckInWidget from '@/components/dashboard/MoodCheckInWidget';
@@ -24,45 +26,75 @@ import MoodCheckInWidget from '@/components/dashboard/MoodCheckInWidget';
 const Dashboard = () => {
   const { t } = useLanguage();
 
-  // Mock data
-  const babyData = {
-    name: 'Arya',
-    ageMonths: 3,
-    ageDays: 12,
-    lastFeed: '2 hours ago',
-    lastSleep: '4 hours',
-    status: 'good', // good, attention, urgent
-    weight: '5.2 kg',
-  };
+  const { user } = useAuth();
+  const [babyData, setBabyData] = useState(null);
+  const [recentLogs, setRecentLogs] = useState([]);
+  const [alerts, setAlerts] = useState([]); // TODO: wire up real alerts if needed
 
-  const alerts = [
-    {
-      id: 1,
-      severity: 'low',
-      title: 'Feeding reminder',
-      description: 'It\'s been 3 hours since the last feeding.',
-      rule: 'Feeding interval monitoring',
-      trigger: 'Last feeding was logged 3 hours ago',
-      explanation: 'Babies typically feed every 2-4 hours. This is a gentle reminder to check if your baby might be hungry.',
-      action: 'Consider offering a feed soon.',
-    },
-    {
-      id: 2,
-      severity: 'medium',
-      title: 'Sleep pattern change',
-      description: 'Night sleep duration has decreased this week.',
-      rule: 'Sleep pattern tracking',
-      trigger: 'Average night sleep reduced from 6h to 4.5h over 5 days',
-      explanation: 'Changes in sleep patterns are common during growth spurts or developmental leaps. This is informational, not a concern.',
-      action: 'Try maintaining consistent bedtime routines.',
-    },
-  ];
+  useEffect(() => {
+    async function fetchBabyAndLogs() {
+      if (!user) return;
+      const babies = await getBabiesByParent(user.uid);
+      if (babies.length > 0) {
+        // Type assertion for baby
+        const baby = babies[0] as {
+          id: string;
+          name?: string;
+          dob?: string;
+          gestationalAge?: number;
+          currentWeight?: number;
+        };
+        const logs = (await getCareLogsByBaby(baby.id)) as Array<{
+          id: string;
+          type?: string;
+          timestamp?: any;
+          quantity?: number;
+          duration?: number;
+          medicationGiven?: boolean;
+        }>;
+        // Find last feed, sleep, medication logs
+        const lastFeedLog = logs.find(l => l.type === 'feeding');
+        const lastSleepLog = logs.find(l => l.type === 'sleep');
+        const lastMedicationLog = logs.find(l => l.type === 'medication');
+        setBabyData({
+          name: baby.name || '',
+          ageMonths: getAgeMonths(baby.dob),
+          ageDays: getAgeDays(baby.dob),
+          gestationalAge: baby.gestationalAge || '',
+          lastFeed: lastFeedLog && lastFeedLog.timestamp ? timeAgo(lastFeedLog.timestamp.toDate ? lastFeedLog.timestamp.toDate() : lastFeedLog.timestamp) : '',
+          lastSleep: lastSleepLog && lastSleepLog.timestamp ? timeAgo(lastSleepLog.timestamp.toDate ? lastSleepLog.timestamp.toDate() : lastSleepLog.timestamp) : '',
+          lastMedication: lastMedicationLog ? (lastMedicationLog.medicationGiven ? 'Given' : 'Not Given') : '',
+          status: 'good',
+          weight: (baby.currentWeight !== undefined ? baby.currentWeight : '') + ' kg',
+        });
+        setRecentLogs(logs);
+      }
+    }
+    fetchBabyAndLogs();
+  }, [user]);
 
-  const recentLogs = [
-    { type: 'feed', time: '2 hours ago', detail: '120ml formula' },
-    { type: 'sleep', time: '4 hours ago', detail: '2h 30min nap' },
-    { type: 'feed', time: '5 hours ago', detail: '100ml formula' },
-  ];
+  // Helper functions
+  function getAgeMonths(dob?: string) {
+    if (!dob) return 0;
+    const birth = new Date(dob);
+    const now = new Date();
+    return now.getMonth() - birth.getMonth() + 12 * (now.getFullYear() - birth.getFullYear());
+  }
+  function getAgeDays(dob?: string) {
+    if (!dob) return 0;
+    const birth = new Date(dob);
+    const now = new Date();
+    return Math.floor((now.getTime() - birth.getTime()) / (1000 * 60 * 60 * 24)) % 30;
+  }
+  function timeAgo(date: Date) {
+    if (!date) return '';
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffH = Math.floor(diffMs / (1000 * 60 * 60));
+    if (diffH < 1) return 'just now';
+    if (diffH === 1) return '1 hour ago';
+    return `${diffH} hours ago`;
+  }
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -107,11 +139,10 @@ const Dashboard = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background">
-      <Header />
-
-      <main className="pt-24 pb-12 px-4">
-        <div className="container mx-auto max-w-6xl">
+    <DashboardLayout>
+      <div className="min-h-screen bg-background">
+        <main className="pb-12 px-4 pt-8">
+          <div className="container mx-auto max-w-6xl">
           {/* Welcome Section */}
           <div className="mb-8">
             <div className="flex items-center gap-2 text-primary mb-2">
@@ -127,55 +158,56 @@ const Dashboard = () => {
             {/* Main Content */}
             <div className="lg:col-span-2 space-y-6">
               {/* Baby Summary Card */}
-              <Card className="overflow-hidden border-2 border-primary/20 shadow-card">
-                <CardHeader className="bg-gradient-to-r from-healthcare-blue-light to-healthcare-mint-light pb-0">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      <div className="w-16 h-16 bg-white rounded-2xl shadow-soft flex items-center justify-center text-3xl">
-                        👶
+              {babyData && (
+                <Card className="overflow-hidden border-2 border-primary/20 shadow-card">
+                  <CardHeader className="bg-gradient-to-r from-healthcare-blue-light to-healthcare-mint-light pb-0">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-4">
+                        <div className="w-16 h-16 bg-white rounded-2xl shadow-soft flex items-center justify-center text-3xl">
+                          👶
+                        </div>
+                        <div>
+                          <CardTitle className="text-2xl text-foreground">{babyData.name}</CardTitle>
+                          <p className="text-muted-foreground">
+                            {babyData.ageMonths} months, {babyData.ageDays} days old
+                          </p>
+                        </div>
                       </div>
-                      <div>
-                        <CardTitle className="text-2xl text-foreground">{babyData.name}</CardTitle>
-                        <p className="text-muted-foreground">
-                          {babyData.ageMonths} months, {babyData.ageDays} days old
-                        </p>
+                      <div className="flex items-center gap-2">
+                        <span className={`w-3 h-3 rounded-full ${getStatusColor(babyData.status)} animate-pulse`} />
+                        <span className="text-sm font-medium text-foreground capitalize">
+                          {babyData.status === 'good' ? 'All Good' : babyData.status}
+                        </span>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <span className={`w-3 h-3 rounded-full ${getStatusColor(babyData.status)} animate-pulse`} />
-                      <span className="text-sm font-medium text-foreground capitalize">
-                        {babyData.status === 'good' ? 'All Good' : babyData.status}
-                      </span>
+                  </CardHeader>
+                  <CardContent className="pt-6">
+                    <div className="grid grid-cols-3 gap-4">
+                      <div className="text-center p-4 bg-healthcare-blue-light/30 rounded-2xl">
+                        <Droplet className="w-6 h-6 text-primary mx-auto mb-2" />
+                        <p className="text-xs text-muted-foreground mb-1">{t('dashboard.lastFeed')}</p>
+                        <p className="font-semibold text-foreground">{babyData.lastFeed}</p>
+                      </div>
+                      <div className="text-center p-4 bg-healthcare-mint-light/30 rounded-2xl">
+                        <Moon className="w-6 h-6 text-healthcare-mint mx-auto mb-2" />
+                        <p className="text-xs text-muted-foreground mb-1">{t('dashboard.lastSleep')}</p>
+                        <p className="font-semibold text-foreground">{babyData.lastSleep}</p>
+                      </div>
+                      <div className="text-center p-4 bg-healthcare-peach/30 rounded-2xl">
+                        <Baby className="w-6 h-6 text-healthcare-peach-dark mx-auto mb-2" />
+                        <p className="text-xs text-muted-foreground">Weight</p>
+                        <p className="font-semibold text-foreground">{babyData.weight}</p>
+                      </div>
                     </div>
-                  </div>
-                </CardHeader>
-                <CardContent className="pt-6">
-                  <div className="grid grid-cols-3 gap-4">
-                    <div className="text-center p-4 bg-healthcare-blue-light/30 rounded-2xl">
-                      <Droplet className="w-6 h-6 text-primary mx-auto mb-2" />
-                      <p className="text-xs text-muted-foreground mb-1">{t('dashboard.lastFeed')}</p>
-                      <p className="font-semibold text-foreground">{babyData.lastFeed}</p>
-                    </div>
-                    <div className="text-center p-4 bg-healthcare-mint-light/30 rounded-2xl">
-                      <Moon className="w-6 h-6 text-healthcare-mint mx-auto mb-2" />
-                      <p className="text-xs text-muted-foreground mb-1">{t('dashboard.lastSleep')}</p>
-                      <p className="font-semibold text-foreground">{babyData.lastSleep}</p>
-                    </div>
-                    <div className="text-center p-4 bg-healthcare-peach/30 rounded-2xl">
-                      <Baby className="w-6 h-6 text-healthcare-peach-dark mx-auto mb-2" />
-                      <p className="text-xs text-muted-foreground mb-1">Weight</p>
-                      <p className="font-semibold text-foreground">{babyData.weight}</p>
-                    </div>
-                  </div>
-
-                  <Link to="/daily-log">
-                    <Button className="w-full mt-6 h-12 gap-2 shadow-soft hover:shadow-hover">
-                      <Plus className="w-5 h-5" />
-                      Add Care Log
-                    </Button>
-                  </Link>
-                </CardContent>
-              </Card>
+                    <Link to="/daily-log">
+                      <Button className="w-full mt-6 h-12 gap-2 shadow-soft hover:shadow-hover">
+                        <Plus className="w-5 h-5" />
+                        Add Care Log
+                      </Button>
+                    </Link>
+                  </CardContent>
+                </Card>
+              )}
 
               {/* Alerts Section */}
               <Card>
@@ -241,21 +273,27 @@ const Dashboard = () => {
                         <div className="flex items-center gap-3">
                           <div
                             className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-                              log.type === 'feed' ? 'bg-healthcare-blue-light' : 'bg-healthcare-mint-light'
+                              log.type === 'feeding' ? 'bg-healthcare-blue-light' : log.type === 'sleep' ? 'bg-healthcare-mint-light' : 'bg-healthcare-peach'
                             }`}
                           >
-                            {log.type === 'feed' ? (
+                            {log.type === 'feeding' ? (
                               <Droplet className="w-5 h-5 text-primary" />
-                            ) : (
+                            ) : log.type === 'sleep' ? (
                               <Moon className="w-5 h-5 text-healthcare-mint" />
+                            ) : (
+                              <Baby className="w-5 h-5 text-healthcare-peach-dark" />
                             )}
                           </div>
                           <div>
                             <p className="font-medium text-foreground capitalize">{log.type}</p>
-                            <p className="text-xs text-muted-foreground">{log.time}</p>
+                            <p className="text-xs text-muted-foreground">{timeAgo(log.timestamp?.toDate?.() || log.timestamp)}</p>
                           </div>
                         </div>
-                        <span className="text-sm text-muted-foreground">{log.detail}</span>
+                        <span className="text-sm text-muted-foreground">
+                          {log.type === 'feeding' && log.quantity ? `${log.quantity}ml` : ''}
+                          {log.type === 'sleep' && log.duration ? `${log.duration} min` : ''}
+                          {log.type === 'medication' && log.medicationGiven ? 'Medication given' : ''}
+                        </span>
                       </div>
                     ))}
                   </div>
@@ -330,6 +368,7 @@ const Dashboard = () => {
         </div>
       </main>
     </div>
+    </DashboardLayout>
   );
 };
 

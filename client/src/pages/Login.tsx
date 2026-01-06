@@ -6,10 +6,12 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { toast } from '@/hooks/use-toast';
+import { useAuth } from '@/contexts/AuthContext';
 
 const Login = () => {
   const { t } = useLanguage();
   const navigate = useNavigate();
+  const { loginWithGoogle, loginWithEmail } = useAuth();
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [formData, setFormData] = useState({
@@ -20,23 +22,44 @@ const Login = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
-    
-    // Simulate login
-    setTimeout(() => {
-      setIsLoading(false);
+
+    try {
+      await loginWithEmail(formData.email, formData.password);
       toast({
         title: "Welcome back! 💙",
         description: "Successfully logged in.",
       });
+      // After successful login, go to dashboard (it has the main data)
       navigate('/dashboard');
-    }, 1500);
+    } catch (error) {
+      toast({
+        title: "Login failed",
+        description: error instanceof Error ? error.message : "Please check your credentials and try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const handleGoogleLogin = () => {
-    toast({
-      title: "Google Sign-in",
-      description: "Google authentication would be integrated here.",
-    });
+  const handleGoogleLogin = async () => {
+    setIsLoading(true);
+    try {
+      await loginWithGoogle();
+      toast({
+        title: "Welcome back! 💙",
+        description: "Signed in with Google.",
+      });
+      navigate('/dashboard');
+    } catch (error) {
+      toast({
+        title: "Google Sign-in failed",
+        description: error instanceof Error ? error.message : "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -172,6 +195,7 @@ const Login = () => {
             variant="outline"
             className="w-full h-12 text-base font-medium"
             onClick={handleGoogleLogin}
+            disabled={isLoading}
           >
             <svg className="w-5 h-5 mr-2" viewBox="0 0 24 24">
               <path
