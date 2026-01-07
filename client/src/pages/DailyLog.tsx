@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { addCareLog, getBabiesByParent } from '@/lib/firestore';
+import { getBabiesByParent } from '@/lib/firestore';
+import { careLogsApi } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -70,35 +71,38 @@ const DailyLog = () => {
       const babies = await getBabiesByParent(user.uid);
       const baby = babies.find(b => b.id === babyId);
       if (!baby) throw new Error('Baby not found');
+      
+      let logData: any = { babyId };
+      
       if (activeTab === 'feeding') {
-        await addCareLog({
+        logData = {
           babyId,
-          parentId: user.uid,
           type: 'feeding',
           quantity: feedingData.quantity,
-        });
+        };
       } else if (activeTab === 'sleep') {
-        await addCareLog({
+        logData = {
           babyId,
-          parentId: user.uid,
           type: 'sleep',
           duration: sleepData.duration * 60, // convert hours to minutes
-        });
+        };
       } else if (activeTab === 'medication') {
-        await addCareLog({
+        logData = {
           babyId,
-          parentId: user.uid,
           type: 'medication',
           medicationGiven: medicationData.given,
-        });
+        };
       }
+
+      const result = await careLogsApi.create(logData);
+      
       toast({
         title: 'Log saved! ✨',
-        description: `${activeTab.charAt(0).toUpperCase() + activeTab.slice(1)} entry has been recorded.`,
+        description: `${activeTab.charAt(0).toUpperCase() + activeTab.slice(1)} entry has been recorded.${result.alertsCreated > 0 ? ` ${result.alertsCreated} alert(s) generated.` : ''}`,
       });
       navigate('/dashboard');
-    } catch (error) {
-      toast({ title: 'Error saving log', description: error.message, variant: 'destructive' });
+    } catch (error: any) {
+      toast({ title: 'Error saving log', description: error.message || 'Failed to save log', variant: 'destructive' });
     } finally {
       setIsSubmitting(false);
     }

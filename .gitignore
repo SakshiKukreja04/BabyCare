@@ -1,0 +1,15 @@
+# Server
+server/serviceAccountKey.json
+server/.env
+server/node_modules/
+
+# Client (if not already in client/.gitignore)
+client/node_modules/
+client/.env
+client/dist/
+
+# General
+.DS_Store
+*.log
+.env.local
+

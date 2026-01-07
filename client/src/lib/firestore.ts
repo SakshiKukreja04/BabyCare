@@ -12,6 +12,7 @@ import {
   serverTimestamp
 } from "firebase/firestore";
 import { db } from "./firebase";
+import { careLogsApi, alertsApi } from './api';
 
 // USERS
 export async function createUserIfNotExists(user) {
@@ -41,36 +42,30 @@ export async function getBabiesByParent(uid) {
 }
 
 // CARE LOGS
+// Note: Care logs are now handled by the backend API
+// These functions are kept for backward compatibility but redirect to API
 export async function addCareLog(logData) {
   // logData: { parentId, babyId, type, ...fields }
   if (!logData.parentId) throw new Error("parentId required");
   if (!logData.babyId || !logData.type) throw new Error("babyId and type required");
 
-  return await addDoc(collection(db, "careLogs"), {
-    ...logData,
-    timestamp: serverTimestamp(),
+  // Use backend API instead of direct Firestore
+  const result = await careLogsApi.create({
+    babyId: logData.babyId,
+    type: logData.type,
+    quantity: logData.quantity,
+    duration: logData.duration,
+    medicationGiven: logData.medicationGiven,
+    notes: logData.notes,
   });
+
+  return result.careLog;
 }
 
 export async function getCareLogsByBaby(babyId, parentId, max = 20) {
-  const q = query(
-    collection(db, "careLogs"),
-    where("parentId", "==", parentId)
-  );
-  const snap = await getDocs(q);
-  // Filter & sort client-side so we don't require a composite index
-  return snap.docs
-    .map(doc => ({ id: doc.id, ...doc.data() }))
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    .filter((doc: any) => doc.babyId === babyId)
-    // newest first, based on Firestore timestamp field
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    .sort((a: any, b: any) => {
-      const ta = a.timestamp?.toMillis?.() ?? 0;
-      const tb = b.timestamp?.toMillis?.() ?? 0;
-      return tb - ta;
-    })
-    .slice(0, max);
+  // Use backend API instead of direct Firestore
+  const result = await careLogsApi.getByBaby(babyId, max);
+  return result.careLogs;
 }
 
 // RULES (READ-ONLY)
@@ -80,8 +75,9 @@ export async function getRules() {
 }
 
 // ALERTS (READ-ONLY)
+// Note: Alerts are now handled by the backend API
 export async function getAlertsByBaby(babyId) {
-  const q = query(collection(db, "alerts"), where("babyId", "==", babyId));
-  const snap = await getDocs(q);
-  return snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  // Use backend API instead of direct Firestore
+  const result = await alertsApi.getByBaby(babyId, false); // Get unresolved alerts
+  return result.alerts;
 }

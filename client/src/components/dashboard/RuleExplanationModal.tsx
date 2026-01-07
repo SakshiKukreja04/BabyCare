@@ -1,4 +1,5 @@
-import { HelpCircle, X, AlertCircle, FileText, Lightbulb } from 'lucide-react';
+import { useState } from 'react';
+import { HelpCircle, X, AlertCircle, FileText, Lightbulb, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -9,21 +10,49 @@ import {
   DialogClose,
 } from '@/components/ui/dialog';
 import { useLanguage } from '@/contexts/LanguageContext';
+import { alertsApi } from '@/lib/api';
 
 interface RuleExplanationModalProps {
   alert: {
-    id: number;
+    id: string;
     severity: string;
     title: string;
     description: string;
     rule?: string;
     trigger?: string;
     explanation?: string;
+    ruleId?: string;
+    triggerData?: any;
   };
 }
 
 const RuleExplanationModal = ({ alert }: RuleExplanationModalProps) => {
   const { t } = useLanguage();
+  const [explanation, setExplanation] = useState<string | null>(null);
+  const [isLoadingExplanation, setIsLoadingExplanation] = useState(false);
+  const [isOpen, setIsOpen] = useState(false);
+
+  const fetchExplanation = async () => {
+    if (explanation || isLoadingExplanation) return;
+    
+    setIsLoadingExplanation(true);
+    try {
+      const result = await alertsApi.getExplanation(alert.id);
+      setExplanation(result.explanation);
+    } catch (error) {
+      console.error('Error fetching explanation:', error);
+      setExplanation(t('ruleTrace.defaultExplanation'));
+    } finally {
+      setIsLoadingExplanation(false);
+    }
+  };
+
+  const handleOpenChange = (open: boolean) => {
+    setIsOpen(open);
+    if (open && !explanation) {
+      fetchExplanation();
+    }
+  };
 
   const explanationSteps = [
     {
@@ -36,21 +65,23 @@ const RuleExplanationModal = ({ alert }: RuleExplanationModalProps) => {
     {
       icon: FileText,
       label: t('ruleTrace.whatCaused'),
-      content: alert.trigger || t('ruleTrace.defaultTrigger'),
+      content: alert.trigger || (alert.triggerData ? JSON.stringify(alert.triggerData, null, 2) : null) || t('ruleTrace.defaultTrigger'),
       color: 'text-alert-medium',
       bg: 'bg-alert-medium/10',
     },
     {
       icon: Lightbulb,
       label: t('ruleTrace.whyMatters'),
-      content: alert.explanation || t('ruleTrace.defaultExplanation'),
+      content: isLoadingExplanation 
+        ? 'Loading explanation...' 
+        : (explanation || t('ruleTrace.defaultExplanation')),
       color: 'text-healthcare-mint',
       bg: 'bg-healthcare-mint/10',
     },
   ];
 
   return (
-    <Dialog>
+    <Dialog open={isOpen} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
         <Button
           variant="ghost"
@@ -89,9 +120,16 @@ const RuleExplanationModal = ({ alert }: RuleExplanationModalProps) => {
                   <p className={`text-xs font-semibold ${step.color} mb-1`}>
                     {step.label}
                   </p>
-                  <p className="text-sm text-foreground leading-relaxed">
-                    {step.content}
-                  </p>
+                  {isLoadingExplanation && index === 2 ? (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Loading AI explanation...
+                    </div>
+                  ) : (
+                    <p className="text-sm text-foreground leading-relaxed">
+                      {step.content}
+                    </p>
+                  )}
                 </div>
               </div>
             ))}

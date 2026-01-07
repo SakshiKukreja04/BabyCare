@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { getCareLogsByBaby, addCareLog, getBabiesByParent } from '@/lib/firestore';
+import { getCareLogsByBaby, getBabiesByParent, getAlertsByBaby } from '@/lib/firestore';
 import { useAuth } from '@/contexts/AuthContext';
 import { Link } from 'react-router-dom';
 import {
@@ -29,7 +29,7 @@ const Dashboard = () => {
   const { user } = useAuth();
   const [babyData, setBabyData] = useState(null);
   const [recentLogs, setRecentLogs] = useState([]);
-  const [alerts, setAlerts] = useState([]); // TODO: wire up real alerts if needed
+  const [alerts, setAlerts] = useState([]);
   const [dailySummary, setDailySummary] = useState({
     totalFeedMl: 0,
     totalSleepMinutes: 0,
@@ -101,8 +101,8 @@ const Dashboard = () => {
           ageMonths: getAgeMonths(baby.dob),
           ageDays: getAgeDays(baby.dob),
           gestationalAge: baby.gestationalAge || '',
-          lastFeed: lastFeedLog && lastFeedLog.timestamp ? timeAgo(lastFeedLog.timestamp.toDate ? lastFeedLog.timestamp.toDate() : lastFeedLog.timestamp) : '',
-          lastSleep: lastSleepLog && lastSleepLog.timestamp ? timeAgo(lastSleepLog.timestamp.toDate ? lastSleepLog.timestamp.toDate() : lastSleepLog.timestamp) : '',
+          lastFeed: lastFeedLog && lastFeedLog.timestamp ? timeAgo(lastFeedLog.timestamp) : '',
+          lastSleep: lastSleepLog && lastSleepLog.timestamp ? timeAgo(lastSleepLog.timestamp) : '',
           lastMedication: lastMedicationLog ? (lastMedicationLog.medicationGiven ? 'Given' : 'Not Given') : '',
           status: 'good',
           weight: (baby.currentWeight !== undefined ? baby.currentWeight : '') + ' kg',
@@ -118,6 +118,14 @@ const Dashboard = () => {
         });
 
         setRecentLogs(logs);
+
+        // Fetch alerts for this baby
+        try {
+          const alertsData = await getAlertsByBaby(baby.id);
+          setAlerts(alertsData.filter((a: any) => !a.resolved));
+        } catch (error) {
+          console.error('Error fetching alerts:', error);
+        }
       }
     }
     fetchBabyAndLogs();
@@ -136,10 +144,31 @@ const Dashboard = () => {
     const now = new Date();
     return Math.floor((now.getTime() - birth.getTime()) / (1000 * 60 * 60 * 24)) % 30;
   }
-  function timeAgo(date: Date) {
+  function timeAgo(date: Date | string | any) {
     if (!date) return '';
+    
+    // Handle different timestamp formats
+    let dateObj: Date;
+    if (typeof date === 'string') {
+      dateObj = new Date(date);
+    } else if (date.toDate && typeof date.toDate === 'function') {
+      // Firestore Timestamp object
+      dateObj = date.toDate();
+    } else if (date instanceof Date) {
+      dateObj = date;
+    } else if (date.toMillis && typeof date.toMillis === 'function') {
+      // Firestore Timestamp with toMillis
+      dateObj = new Date(date.toMillis());
+    } else {
+      // Try to parse as Date
+      dateObj = new Date(date);
+    }
+    
+    // Check if date is valid
+    if (isNaN(dateObj.getTime())) return '';
+    
     const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
+    const diffMs = now.getTime() - dateObj.getTime();
     const diffH = Math.floor(diffMs / (1000 * 60 * 60));
     if (diffH < 1) return 'just now';
     if (diffH === 1) return '1 hour ago';
@@ -148,7 +177,27 @@ const Dashboard = () => {
 
   function formatTimestamp(raw: any) {
     if (!raw) return '';
-    const date = raw.toDate ? raw.toDate() : new Date(raw);
+    
+    // Handle different timestamp formats
+    let date: Date;
+    if (typeof raw === 'string') {
+      date = new Date(raw);
+    } else if (raw.toDate && typeof raw.toDate === 'function') {
+      // Firestore Timestamp object
+      date = raw.toDate();
+    } else if (raw instanceof Date) {
+      date = raw;
+    } else if (raw.toMillis && typeof raw.toMillis === 'function') {
+      // Firestore Timestamp with toMillis
+      date = new Date(raw.toMillis());
+    } else {
+      // Try to parse as Date
+      date = new Date(raw);
+    }
+    
+    // Check if date is valid
+    if (isNaN(date.getTime())) return '';
+    
     return date.toLocaleString(undefined, {
       hour: '2-digit',
       minute: '2-digit',

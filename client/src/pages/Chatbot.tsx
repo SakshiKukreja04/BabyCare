@@ -5,6 +5,9 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
+import { chatbotApi } from '@/lib/api';
+import { useAuth } from '@/contexts/AuthContext';
+import { getBabiesByParent } from '@/lib/firestore';
 
 interface Message {
   id: string;
@@ -14,6 +17,7 @@ interface Message {
 }
 
 const Chatbot = () => {
+  const { user } = useAuth();
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
@@ -24,7 +28,21 @@ const Chatbot = () => {
   ]);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  const [babyId, setBabyId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Fetch baby ID on mount
+  useEffect(() => {
+    async function fetchBaby() {
+      if (user) {
+        const babies = await getBabiesByParent(user.uid);
+        if (babies.length > 0) {
+          setBabyId(babies[0].id);
+        }
+      }
+    }
+    fetchBaby();
+  }, [user]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -45,20 +63,32 @@ const Chatbot = () => {
     };
 
     setMessages((prev) => [...prev, userMessage]);
+    const userInput = input.trim();
     setInput('');
     setIsTyping(true);
 
-    // Simulate typing delay
-    setTimeout(() => {
+    try {
+      // Call backend chatbot API
+      const result = await chatbotApi.sendMessage(userInput, babyId || undefined);
+      
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: 'Thank you for your question. This is a placeholder response. In a real implementation, this would connect to Gemini API for general guidance on baby care and self-care topics. Remember, this is for general information only and not medical advice.',
+        content: result.response,
         timestamp: new Date(),
       };
       setMessages((prev) => [...prev, assistantMessage]);
+    } catch (error: any) {
+      const errorMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        role: 'assistant',
+        content: 'I apologize, but I encountered an error. Please try again or consult with your healthcare provider for medical questions.',
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, errorMessage]);
+    } finally {
       setIsTyping(false);
-    }, 1000);
+    }
   };
 
   const handleKeyPress = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
