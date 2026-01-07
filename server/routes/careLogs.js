@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { db, admin } = require('../firebaseAdmin');
 const { verifyToken } = require('../middleware/auth');
-const { evaluateFeedingRules } = require('../services/ruleEngine');
+const { evaluateAllRules } = require('../services/ruleEngine');
 const { sendAlertNotification } = require('../services/fcm');
 const { sendAlertViaWhatsApp, getUserPhoneNumber } = require('../services/whatsapp');
 
@@ -99,10 +99,10 @@ router.post('/', verifyToken, async (req, res) => {
 
     await careLogRef.set(careLogData);
 
-    // If feeding log, evaluate rules
+    // Evaluate all applicable rules after creating care log
     let alerts = [];
-    if (type === 'feeding') {
-      alerts = await evaluateFeedingRules(babyId, parentId);
+    if (type === 'feeding' || type === 'sleep' || type === 'medication') {
+      alerts = await evaluateAllRules(babyId, parentId);
 
       // Send notifications for new alerts
       for (const alert of alerts) {

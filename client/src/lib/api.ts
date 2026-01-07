@@ -133,6 +133,18 @@ export const chatbotApi = {
 };
 
 /**
+ * Babies API
+ */
+export const babiesApi = {
+  /**
+   * Get baby profile with type classification
+   */
+  async getById(babyId: string) {
+    return apiRequest<{ baby: any }>(`/api/babies/${babyId}`);
+  },
+};
+
+/**
  * Health check (no auth required)
  */
 export async function checkHealth() {

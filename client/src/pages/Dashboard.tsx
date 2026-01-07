@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { getCareLogsByBaby, getBabiesByParent, getAlertsByBaby } from '@/lib/firestore';
+import { getCareLogsByBaby, getBabiesByParent } from '@/lib/firestore';
+import { alertsApi, babiesApi } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { Link } from 'react-router-dom';
 import {
@@ -27,9 +28,11 @@ const Dashboard = () => {
   const { t } = useLanguage();
 
   const { user } = useAuth();
-  const [babyData, setBabyData] = useState(null);
+  const [babyData, setBabyData] = useState<any>(null);
   const [recentLogs, setRecentLogs] = useState([]);
-  const [alerts, setAlerts] = useState([]);
+  const [alerts, setAlerts] = useState<any[]>([]);
+  const [reminders, setReminders] = useState<any[]>([]);
+  const [babyType, setBabyType] = useState<string | null>(null);
   const [dailySummary, setDailySummary] = useState({
     totalFeedMl: 0,
     totalSleepMinutes: 0,
@@ -119,10 +122,31 @@ const Dashboard = () => {
 
         setRecentLogs(logs);
 
-        // Fetch alerts for this baby
+        // Fetch baby profile with type classification
         try {
-          const alertsData = await getAlertsByBaby(baby.id);
-          setAlerts(alertsData.filter((a: any) => !a.resolved));
+          const babyProfile = await babiesApi.getById(baby.id);
+          if (babyProfile.baby) {
+            setBabyType(babyProfile.baby.babyType || null);
+          }
+        } catch (error) {
+          console.error('Error fetching baby profile:', error);
+        }
+
+        // Fetch alerts for this baby (HIGH and MEDIUM severity)
+        try {
+          const alertsData = await alertsApi.getByBaby(baby.id, false);
+          const allAlerts = alertsData.alerts || [];
+          
+          // Separate alerts (HIGH/MEDIUM) from reminders (LOW)
+          const highMediumAlerts = allAlerts.filter((a: any) => 
+            !a.resolved && (a.severity === 'HIGH' || a.severity === 'MEDIUM')
+          );
+          const lowReminders = allAlerts.filter((a: any) => 
+            !a.resolved && a.severity === 'LOW'
+          );
+          
+          setAlerts(highMediumAlerts);
+          setReminders(lowReminders);
         } catch (error) {
           console.error('Error fetching alerts:', error);
         }
@@ -220,7 +244,8 @@ const Dashboard = () => {
   };
 
   const getSeverityStyles = (severity: string) => {
-    switch (severity) {
+    const severityLower = severity?.toLowerCase() || '';
+    switch (severityLower) {
       case 'low':
         return {
           border: 'border-alert-low/30',
@@ -277,7 +302,18 @@ const Dashboard = () => {
                           👶
                         </div>
                         <div>
-                          <CardTitle className="text-2xl text-foreground">{babyData.name}</CardTitle>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <CardTitle className="text-2xl text-foreground">{babyData.name}</CardTitle>
+                            {babyType && (
+                              <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                                babyType === 'PREMATURE' 
+                                  ? 'bg-healthcare-peach/20 text-healthcare-peach-dark' 
+                                  : 'bg-healthcare-mint-light/20 text-healthcare-mint'
+                              }`}>
+                                {babyType === 'PREMATURE' ? '👶 Premature' : '👶 Full Term'}
+                              </span>
+                            )}
+                          </div>
                           <p className="text-muted-foreground">
                             {babyData.ageMonths} months, {babyData.ageDays} days old
                           </p>
@@ -384,7 +420,51 @@ const Dashboard = () => {
                 </CardContent>
               </Card>
 
-              {/* Alerts Section */}
+              {/* Reminders Section (LOW severity alerts) */}
+              {reminders.length > 0 && (
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between">
+                    <CardTitle className="flex items-center gap-2">
+                      <Clock className="w-5 h-5 text-alert-low" />
+                      Reminders
+                    </CardTitle>
+                    <span className="text-sm text-muted-foreground">
+                      {reminders.length} active
+                    </span>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {reminders.map((reminder) => {
+                      const styles = getSeverityStyles(reminder.severity);
+                      return (
+                        <div
+                          key={reminder.id}
+                          className={`p-3 rounded-xl border ${styles.border} ${styles.bg}`}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${styles.badge}`}>
+                                  Reminder
+                                </span>
+                                <span className="text-sm font-medium text-foreground">{reminder.title}</span>
+                              </div>
+                              <p className="text-xs text-muted-foreground mb-2">{reminder.description}</p>
+                              {reminder.triggerData && reminder.triggerData.message && (
+                                <p className="text-xs text-muted-foreground italic">
+                                  {reminder.triggerData.message}
+                                </p>
+                              )}
+                            </div>
+                            <RuleExplanationModal alert={reminder} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Alerts Section (HIGH/MEDIUM severity) */}
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between">
                   <CardTitle className="flex items-center gap-2">
@@ -396,37 +476,50 @@ const Dashboard = () => {
                   </span>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  {alerts.map((alert) => {
-                    const styles = getSeverityStyles(alert.severity);
-                    return (
-                      <details
-                        key={alert.id}
-                        className={`group p-4 rounded-2xl border ${styles.border} ${styles.bg} cursor-pointer`}
-                      >
-                        <summary className="flex items-center justify-between list-none">
-                          <div className="flex items-center gap-3">
-                            <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${styles.badge}`}>
-                              {alert.severity}
-                            </span>
-                            <span className="font-medium text-foreground">{alert.title}</span>
+                  {alerts.length === 0 ? (
+                    <div className="text-center py-8">
+                      <div className="w-16 h-16 bg-alert-success/10 rounded-full flex items-center justify-center mx-auto mb-3">
+                        <Heart className="w-8 h-8 text-alert-success" />
+                      </div>
+                      <p className="text-sm text-muted-foreground">No active alerts. All good! 💙</p>
+                    </div>
+                  ) : (
+                    alerts.map((alert) => {
+                      const styles = getSeverityStyles(alert.severity);
+                      return (
+                        <details
+                          key={alert.id}
+                          className={`group p-4 rounded-2xl border ${styles.border} ${styles.bg} cursor-pointer`}
+                        >
+                          <summary className="flex items-center justify-between list-none">
+                            <div className="flex items-center gap-3">
+                              <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${styles.badge}`}>
+                                {alert.severity}
+                              </span>
+                              <span className="font-medium text-foreground">{alert.title}</span>
+                            </div>
+                            <ChevronRight className="w-5 h-5 text-muted-foreground group-open:rotate-90 transition-transform" />
+                          </summary>
+                          <div className="mt-4 pt-4 border-t border-border/50 space-y-3">
+                            <p className="text-sm text-muted-foreground">{alert.description}</p>
+                            
+                            {/* Show triggerData if available */}
+                            {alert.triggerData && alert.triggerData.message && (
+                              <div className="p-3 bg-secondary/50 rounded-xl">
+                                <p className="text-xs font-medium text-foreground mb-1">Details:</p>
+                                <p className="text-sm text-muted-foreground">{alert.triggerData.message}</p>
+                              </div>
+                            )}
+                            
+                            {/* Rule Explanation Button */}
+                            <div className="flex justify-end">
+                              <RuleExplanationModal alert={alert} />
+                            </div>
                           </div>
-                          <ChevronRight className="w-5 h-5 text-muted-foreground group-open:rotate-90 transition-transform" />
-                        </summary>
-                        <div className="mt-4 pt-4 border-t border-border/50 space-y-3">
-                          <p className="text-sm text-muted-foreground">{alert.description}</p>
-                          
-                          {/* Rule Explanation Button */}
-                          <div className="flex justify-end">
-                            <RuleExplanationModal alert={alert} />
-                          </div>
-                          
-                          <div className="p-3 bg-primary/5 rounded-xl">
-                            <p className="text-sm font-medium text-primary">{alert.action}</p>
-                          </div>
-                        </div>
-                      </details>
-                    );
-                  })}
+                        </details>
+                      );
+                    })
+                  )}
                 </CardContent>
               </Card>
             </div>
