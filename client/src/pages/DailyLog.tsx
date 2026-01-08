@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { getBabiesByParent } from '@/lib/firestore';
 import { careLogsApi } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
@@ -12,6 +12,8 @@ import {
   ArrowLeft,
   Plus,
   Minus,
+  Upload,
+  Image as ImageIcon,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -21,6 +23,7 @@ import { Switch } from '@/components/ui/switch';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { toast } from '@/hooks/use-toast';
 import Header from '@/components/layout/Header';
+import PrescriptionReviewModal from '@/components/prescription/PrescriptionReviewModal';
 
 const DailyLog = () => {
   const { t } = useLanguage();
@@ -44,6 +47,9 @@ const DailyLog = () => {
     given: false,
     notes: '',
   });
+  const [showPrescriptionModal, setShowPrescriptionModal] = useState(false);
+  const [prescriptionImage, setPrescriptionImage] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     async function fetchBaby() {
@@ -120,6 +126,55 @@ const DailyLog = () => {
       ...prev,
       duration: Math.max(0, Math.round((prev.duration + amount) * 10) / 10),
     }));
+  };
+
+  const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      toast({
+        title: 'Invalid file type',
+        description: 'Please upload an image file',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      toast({
+        title: 'File too large',
+        description: 'Please upload an image smaller than 5MB',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    // Read file as base64
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const base64 = e.target?.result as string;
+      setPrescriptionImage(base64);
+      setShowPrescriptionModal(true);
+    };
+    reader.onerror = () => {
+      toast({
+        title: 'Upload failed',
+        description: 'Failed to read image file',
+        variant: 'destructive',
+      });
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handlePrescriptionConfirm = (prescriptionId: string) => {
+    toast({
+      title: 'Prescription scheduled! ✨',
+      description: 'Medication reminders have been set up.',
+    });
+    // Optionally refresh or navigate
   };
 
   return (
@@ -307,6 +362,41 @@ const DailyLog = () => {
               {/* Medication Form */}
               {activeTab === 'medication' && (
                 <div className="space-y-6">
+                  {/* Prescription Upload Button */}
+                  <div className="p-6 bg-primary/5 rounded-2xl border border-primary/20">
+                    <div className="flex items-center gap-3 mb-3">
+                      <ImageIcon className="w-5 h-5 text-primary" />
+                      <div className="flex-1">
+                        <p className="font-medium text-foreground">Scan Prescription</p>
+                        <p className="text-xs text-muted-foreground">
+                          Upload a photo of your prescription to automatically extract medication details
+                        </p>
+                      </div>
+                    </div>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      onChange={handleImageUpload}
+                      className="hidden"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="w-full border-primary/30 text-primary hover:bg-primary/10"
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      <Upload className="w-4 h-4 mr-2" />
+                      Upload Prescription Image
+                    </Button>
+                  </div>
+
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <div className="flex-1 h-px bg-border" />
+                    <span>OR</span>
+                    <div className="flex-1 h-px bg-border" />
+                  </div>
+
                   <div className="flex items-center justify-between p-6 bg-secondary/50 rounded-2xl">
                     <div>
                       <p className="font-medium text-foreground">Medication Given Today?</p>
@@ -362,6 +452,23 @@ const DailyLog = () => {
           </Card>
         </div>
       </main>
+
+      {/* Prescription Review Modal */}
+      {prescriptionImage && babyId && (
+        <PrescriptionReviewModal
+          isOpen={showPrescriptionModal}
+          onClose={() => {
+            setShowPrescriptionModal(false);
+            setPrescriptionImage(null);
+            if (fileInputRef.current) {
+              fileInputRef.current.value = '';
+            }
+          }}
+          babyId={babyId}
+          imageBase64={prescriptionImage}
+          onConfirm={handlePrescriptionConfirm}
+        />
+      )}
     </div>
   );
 };

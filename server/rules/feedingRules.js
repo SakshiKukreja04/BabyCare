@@ -61,6 +61,16 @@ const feedingRules = {
     appliesTo: 'ALL',
     category: 'feeding',
   },
+  LOW_DAILY_FEEDING_TOTAL: {
+    ruleId: 'low_daily_feeding_total',
+    name: 'Low Daily Feeding Total Alert',
+    description: 'Total daily feeding amount is below recommended minimum (less than 150ml per day)',
+    thresholdMl: 150,
+    severity: 'MEDIUM',
+    messageKey: 'low_daily_feeding_total',
+    appliesTo: 'ALL',
+    category: 'feeding',
+  },
 };
 
 // ============================================

@@ -7,6 +7,7 @@ const careLogsRoutes = require('./routes/careLogs');
 const alertsRoutes = require('./routes/alerts');
 const chatbotRoutes = require('./routes/chatbot');
 const babiesRoutes = require('./routes/babies');
+const prescriptionsRoutes = require('./routes/prescriptions');
 
 // Initialize Express app
 const app = express();
@@ -34,6 +35,7 @@ app.use('/api/care-logs', careLogsRoutes);
 app.use('/api/alerts', alertsRoutes);
 app.use('/api/chatbot', chatbotRoutes);
 app.use('/api/babies', babiesRoutes);
+app.use('/api', prescriptionsRoutes);
 
 // 404 handler
 app.use((req, res) => {

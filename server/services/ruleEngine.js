@@ -201,7 +201,7 @@ async function evaluateFeedingRules(babyId, parentId, baby) {
       }
     }
 
-    // Evaluate LOW_FEED_QUANTITY rule
+    // Evaluate LOW_FEED_QUANTITY rule (individual feed)
     const quantityRule = feedingRules.find(r => r.ruleId === 'low_feed_quantity');
     if (quantityRule && lastFeeding.quantity && lastFeeding.quantity < quantityRule.thresholdMl) {
       const alert = await createAlert({
@@ -219,6 +219,40 @@ async function evaluateFeedingRules(babyId, parentId, baby) {
         },
       });
       alerts.push(alert);
+    }
+
+    // Evaluate LOW_DAILY_FEEDING_TOTAL rule
+    const dailyTotalRule = feedingRules.find(r => r.ruleId === 'low_daily_feeding_total');
+    if (dailyTotalRule) {
+      // Calculate total feeding for last 24 hours
+      const now = new Date();
+      const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+      
+      const todayFeedingLogs = feedingLogs.filter(log => {
+        const logTime = log.timestamp?.toDate?.() || new Date(log.timestamp);
+        return logTime >= twentyFourHoursAgo && log.quantity;
+      });
+
+      const dailyTotalMl = todayFeedingLogs.reduce((sum, log) => sum + (log.quantity || 0), 0);
+
+      if (dailyTotalMl > 0 && dailyTotalMl < dailyTotalRule.thresholdMl) {
+        const alert = await createAlert({
+          babyId,
+          parentId,
+          ruleId: dailyTotalRule.ruleId,
+          severity: dailyTotalRule.severity,
+          title: dailyTotalRule.name,
+          description: dailyTotalRule.description,
+          triggerData: {
+            checked: 'dailyTotalFeeding',
+            value: dailyTotalMl,
+            thresholdMl: dailyTotalRule.thresholdMl,
+            feedCount: todayFeedingLogs.length,
+            message: `Total daily feeding is ${dailyTotalMl}ml, which is below the recommended minimum of ${dailyTotalRule.thresholdMl}ml per day.`,
+          },
+        });
+        alerts.push(alert);
+      }
     }
 
   } catch (error) {

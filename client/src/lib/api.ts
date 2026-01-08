@@ -170,6 +170,64 @@ export const babiesApi = {
 };
 
 /**
+ * Prescriptions API
+ */
+export const prescriptionsApi = {
+  /**
+   * Scan prescription image and extract medication data
+   */
+  async scanPrescription(babyId: string, imageBase64: string) {
+    return apiRequest<{
+      prescriptionId: string;
+      extractedData: {
+        medicine_name: string;
+        dosage: string;
+        frequency: string;
+        times_per_day: number;
+        suggested_start_time: string;
+      };
+      raw_ai_output: string;
+    }>('/api/scan-prescription', {
+      method: 'POST',
+      body: JSON.stringify({ babyId, imageBase64 }),
+    });
+  },
+
+  /**
+   * Confirm and activate a prescription schedule
+   */
+  async confirmPrescription(
+    prescriptionId: string,
+    data: {
+      medicine_name?: string;
+      dosage?: string;
+      frequency?: string;
+      times_per_day?: number;
+      suggested_start_time?: string;
+    }
+  ) {
+    return apiRequest<{
+      prescriptionId: string;
+      status: string;
+      message: string;
+    }>(`/api/prescriptions/${prescriptionId}/confirm`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  /**
+   * Get prescriptions for a baby
+   */
+  async getByBaby(babyId: string) {
+    return apiRequest<{
+      prescriptions: any[];
+      count: number;
+    }>(`/api/prescriptions?babyId=${babyId}`);
+  },
+};
+
+/**
  * Health check (no auth required)
  */
 export async function checkHealth() {

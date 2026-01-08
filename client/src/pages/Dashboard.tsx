@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { getCareLogsByBaby, getBabiesByParent } from '@/lib/firestore';
-import { alertsApi, babiesApi } from '@/lib/api';
+import { alertsApi, babiesApi, prescriptionsApi } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { Link } from 'react-router-dom';
 import {
@@ -15,6 +15,8 @@ import {
   Plus,
   Clock,
   Sparkles,
+  Pill,
+  CheckCircle2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -48,6 +50,7 @@ const Dashboard = () => {
     totalSleepMinutes: 0,
   });
   const [showAllLogs, setShowAllLogs] = useState(false);
+  const [prescriptions, setPrescriptions] = useState<any[]>([]);
 
   useEffect(() => {
     async function fetchBabyAndLogs() {
@@ -174,6 +177,14 @@ const Dashboard = () => {
           setReminders(lowReminders);
         } catch (error) {
           console.error('Error fetching alerts:', error);
+        }
+
+        // Fetch prescriptions for this baby
+        try {
+          const prescriptionsData = await prescriptionsApi.getByBaby(baby.id);
+          setPrescriptions(prescriptionsData.prescriptions || []);
+        } catch (error) {
+          console.error('Error fetching prescriptions:', error);
         }
       }
     }
@@ -593,6 +604,78 @@ const Dashboard = () => {
                     {(!loadingDevelopment && developmentThisWeek) && (
                       <p className="text-xs text-muted-foreground border-t border-border/40 pt-3 mt-4">
                         This is general developmental information, not medical advice.
+                      </p>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Prescription Status Section */}
+              {prescriptions.length > 0 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Pill className="w-5 h-5 text-healthcare-peach-dark" />
+                      Medication Schedule
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {prescriptions
+                      .filter((p: any) => p.status === 'confirmed' || p.status === 'scheduled')
+                      .slice(0, 3)
+                      .map((prescription: any) => {
+                        // Calculate next dose time
+                        const [hours, minutes] = prescription.suggested_start_time.split(':');
+                        const nextDose = new Date();
+                        nextDose.setHours(parseInt(hours, 10), parseInt(minutes, 10), 0, 0);
+                        
+                        // If time has passed today, set for tomorrow
+                        if (nextDose < new Date()) {
+                          nextDose.setDate(nextDose.getDate() + 1);
+                        }
+
+                        const isUpcoming = nextDose > new Date();
+                        const timeStr = nextDose.toLocaleTimeString('en-US', {
+                          hour: 'numeric',
+                          minute: '2-digit',
+                        });
+
+                        return (
+                          <div
+                            key={prescription.id}
+                            className="p-4 rounded-xl border border-healthcare-peach/20 bg-healthcare-peach/5"
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <Pill className="w-4 h-4 text-healthcare-peach-dark" />
+                                  <span className="font-medium text-foreground">
+                                    {prescription.medicine_name || 'Medication'}
+                                  </span>
+                                </div>
+                                <p className="text-sm text-muted-foreground mb-2">
+                                  {prescription.dosage} • {prescription.frequency}
+                                </p>
+                                {isUpcoming ? (
+                                  <p className="text-xs text-healthcare-peach-dark font-medium">
+                                    Next dose: {timeStr} (WhatsApp alert set)
+                                  </p>
+                                ) : (
+                                  <p className="text-xs text-muted-foreground">
+                                    Dose logged at {timeStr}
+                                  </p>
+                                )}
+                              </div>
+                              {!isUpcoming && (
+                                <CheckCircle2 className="w-5 h-5 text-alert-success flex-shrink-0" />
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    {prescriptions.filter((p: any) => p.status === 'confirmed' || p.status === 'scheduled').length === 0 && (
+                      <p className="text-sm text-muted-foreground text-center py-4">
+                        No active medication schedules
                       </p>
                     )}
                   </CardContent>
