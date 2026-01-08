@@ -33,6 +33,16 @@ const Dashboard = () => {
   const [alerts, setAlerts] = useState<any[]>([]);
   const [reminders, setReminders] = useState<any[]>([]);
   const [babyType, setBabyType] = useState<string | null>(null);
+  const [babyId, setBabyId] = useState<string | null>(null);
+  const [ageSummary, setAgeSummary] = useState<{
+    actualAgeWeeks: number;
+    correctedAgeWeeks: number;
+    weeksEarly: number;
+    isPremature: boolean;
+    gestationalAge: number | null;
+  } | null>(null);
+  const [developmentThisWeek, setDevelopmentThisWeek] = useState<string | null>(null);
+  const [loadingDevelopment, setLoadingDevelopment] = useState(false);
   const [dailySummary, setDailySummary] = useState({
     totalFeedMl: 0,
     totalSleepMinutes: 0,
@@ -56,6 +66,7 @@ const Dashboard = () => {
           gestationalAge?: number;
           currentWeight?: number;
         };
+        setBabyId(baby.id);
         const logs = (await getCareLogsByBaby(baby.id, user.uid)) as Array<{
           id: string;
           type?: string;
@@ -132,6 +143,20 @@ const Dashboard = () => {
           console.error('Error fetching baby profile:', error);
         }
 
+        // Fetch deterministic age summary for dual-timeline tracker
+        try {
+          const summary = await babiesApi.getAgeSummary(baby.id);
+          setAgeSummary({
+            actualAgeWeeks: summary.actualAgeWeeks,
+            correctedAgeWeeks: summary.correctedAgeWeeks,
+            weeksEarly: summary.weeksEarly,
+            isPremature: summary.isPremature,
+            gestationalAge: summary.gestationalAge,
+          });
+        } catch (error) {
+          console.error('Error fetching age summary:', error);
+        }
+
         // Fetch alerts for this baby (HIGH and MEDIUM severity)
         try {
           const alertsData = await alertsApi.getByBaby(baby.id, false);
@@ -154,6 +179,71 @@ const Dashboard = () => {
     }
     fetchBabyAndLogs();
   }, [user]);
+
+  // Fetch Gemini explainability for development milestones (premature only)
+  useEffect(() => {
+    async function fetchDevelopmentThisWeek() {
+      console.log('🔄 [Frontend] useEffect triggered for development insight');
+      console.log('   - ageSummary:', ageSummary);
+      console.log('   - babyId:', babyId);
+      console.log('   - isPremature:', ageSummary?.isPremature);
+      console.log('   - correctedAgeWeeks:', ageSummary?.correctedAgeWeeks);
+      
+      if (!ageSummary || !ageSummary.isPremature || !babyId) {
+        console.log('⚠️ [Frontend] Conditions not met, skipping fetch:');
+        console.log('   - ageSummary exists:', !!ageSummary);
+        console.log('   - isPremature:', ageSummary?.isPremature);
+        console.log('   - babyId exists:', !!babyId);
+        setDevelopmentThisWeek(null);
+        return;
+      }
+
+      try {
+        setLoadingDevelopment(true);
+        console.log('🔍 [Frontend] Fetching development insight for baby:', babyId);
+        console.log('📊 [Frontend] Age summary:', JSON.stringify(ageSummary, null, 2));
+        console.log('📊 [Frontend] Corrected age check:', ageSummary.correctedAgeWeeks, 'weeks (should be > 0)');
+        
+        const result = await babiesApi.getDevelopmentThisWeek(babyId);
+        
+        console.log('✅ [Frontend] Received response from API:');
+        console.log('   - Full result:', JSON.stringify(result, null, 2));
+        console.log('   - Corrected age:', result.correctedAgeWeeks, 'weeks');
+        console.log('   - Is premature:', result.isPremature);
+        console.log('   - Content type:', typeof result.content);
+        console.log('   - Content value:', result.content);
+        console.log('   - Content is null:', result.content === null);
+        console.log('   - Content is undefined:', result.content === undefined);
+        console.log('   - Content is empty string:', result.content === '');
+        console.log('   - Content length:', result.content?.length || 0, 'characters');
+        
+        if (result && result.isPremature) {
+          if (result.content) {
+            console.log('✅ [Frontend] Setting development content (content exists)');
+            console.log('   - Content preview:', result.content.substring(0, 200));
+            setDevelopmentThisWeek(result.content);
+          } else {
+            console.warn('⚠️ [Frontend] Content is null/empty, setting to null');
+            console.warn('   - This means AI call may have failed or returned empty');
+            setDevelopmentThisWeek(null);
+          }
+        } else {
+          console.log('ℹ️ [Frontend] Baby is not premature, clearing content');
+          setDevelopmentThisWeek(null);
+        }
+      } catch (error) {
+        console.error('❌ [Frontend] Error fetching development this week content:', error);
+        console.error('   - Error message:', error.message);
+        console.error('   - Error stack:', error.stack);
+        setDevelopmentThisWeek(null);
+      } finally {
+        setLoadingDevelopment(false);
+        console.log('🏁 [Frontend] Fetch complete, loading set to false');
+      }
+    }
+
+    fetchDevelopmentThisWeek();
+  }, [ageSummary, babyId]);
 
   // Helper functions
   function getAgeMonths(dob?: string) {
@@ -292,7 +382,7 @@ const Dashboard = () => {
           <div className="grid lg:grid-cols-3 gap-6">
             {/* Main Content */}
             <div className="lg:col-span-2 space-y-6">
-              {/* Baby Summary Card */}
+              {/* Baby Summary + Dual Timeline Card */}
               {babyData && (
                 <Card className="overflow-hidden border-2 border-primary/20 shadow-card">
                   <CardHeader className="bg-gradient-to-r from-healthcare-blue-light to-healthcare-mint-light pb-0">
@@ -304,12 +394,20 @@ const Dashboard = () => {
                         <div>
                           <div className="flex items-center gap-2 flex-wrap">
                             <CardTitle className="text-2xl text-foreground">{babyData.name}</CardTitle>
-                            {babyType && (
-                              <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                                babyType === 'PREMATURE' 
-                                  ? 'bg-healthcare-peach/20 text-healthcare-peach-dark' 
-                                  : 'bg-healthcare-mint-light/20 text-healthcare-mint'
-                              }`}>
+                            {ageSummary?.isPremature && (
+                              <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-700 flex items-center gap-1">
+                                <span className="text-xs">🟣</span>
+                                <span>PREMATURE</span>
+                              </span>
+                            )}
+                            {babyType && !ageSummary?.isPremature && (
+                              <span
+                                className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                                  babyType === 'PREMATURE'
+                                    ? 'bg-healthcare-peach/20 text-healthcare-peach-dark'
+                                    : 'bg-healthcare-mint-light/20 text-healthcare-mint'
+                                }`}
+                              >
                                 {babyType === 'PREMATURE' ? '👶 Premature' : '👶 Full Term'}
                               </span>
                             )}
@@ -327,7 +425,93 @@ const Dashboard = () => {
                       </div>
                     </div>
                   </CardHeader>
-                  <CardContent className="pt-6">
+                  <CardContent className="pt-6 space-y-6">
+                    {/* Dual Timeline Tracker (Actual vs Corrected Age) */}
+                    {ageSummary && (
+                      <div className="rounded-2xl bg-white/70 backdrop-blur-sm border border-primary/10 p-4">
+                        <div className="flex items-center justify-between mb-3">
+                          <div>
+                            <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+                              Age Tracker
+                            </p>
+                            <p className="text-sm text-muted-foreground">
+                              Based on your baby&apos;s birth and gestational age.
+                            </p>
+                          </div>
+                          {ageSummary.isPremature && (
+                            <div className="text-right max-w-xs text-xs text-muted-foreground">
+                              <span className="font-medium text-foreground block mb-1">
+                                Why corrected age?
+                              </span>
+                              <span>
+                                Corrected age accounts for early birth and is used for developmental tracking.
+                              </span>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="grid gap-3 mb-4">
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="font-medium text-foreground">Actual age</span>
+                            <span className="font-semibold text-foreground">
+                              {ageSummary.actualAgeWeeks} weeks
+                            </span>
+                          </div>
+                          {ageSummary.isPremature && (
+                            <div className="flex items-center justify-between text-sm">
+                              <span className="font-medium text-purple-700">Corrected age</span>
+                              <span className="font-semibold text-purple-700">
+                                {ageSummary.correctedAgeWeeks} weeks
+                              </span>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Progress bars (max 52 weeks) */}
+                        <div className="space-y-3">
+                          <div>
+                            <div className="flex items-center justify-between mb-1 text-xs text-muted-foreground">
+                              <span>Chronological age (actual)</span>
+                              <span>{Math.min(ageSummary.actualAgeWeeks, 52)} / 52 weeks</span>
+                            </div>
+                            {/* Using a simple div-based progress bar to keep styling consistent */}
+                            <div className="h-2 w-full rounded-full bg-secondary overflow-hidden">
+                              <div
+                                className="h-full rounded-full bg-primary transition-all"
+                                style={{
+                                  width: `${Math.min(
+                                    (ageSummary.actualAgeWeeks / 52) * 100,
+                                    100
+                                  )}%`,
+                                }}
+                              />
+                            </div>
+                          </div>
+
+                          {ageSummary.isPremature && (
+                            <div>
+                              <div className="flex items-center justify-between mb-1 text-xs text-muted-foreground">
+                                <span>Developmental age (corrected)</span>
+                                <span>{Math.min(ageSummary.correctedAgeWeeks, 52)} / 52 weeks</span>
+                              </div>
+                              <div className="h-2 w-full rounded-full bg-secondary overflow-hidden">
+                                <div
+                                  className="h-full rounded-full bg-purple-500 transition-all"
+                                  style={{
+                                    width: `${Math.min(
+                                      (ageSummary.correctedAgeWeeks / 52) * 100,
+                                      100
+                                    )}%`,
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Summary metrics */}
                     <div className="grid grid-cols-3 gap-4">
                       <div className="text-center p-4 bg-healthcare-blue-light/30 rounded-2xl">
                         <Droplet className="w-6 h-6 text-primary mx-auto mb-2" />
@@ -357,6 +541,60 @@ const Dashboard = () => {
                         Add Care Log
                       </Button>
                     </Link>
+                  </CardContent>
+                  </Card>
+              )}
+
+              {/* Development This Week (Gemini explainability-only, premature only) */}
+              {ageSummary?.isPremature && (
+                <Card className="border border-primary/20 shadow-card">
+                  <CardHeader className="flex flex-row items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="w-5 h-5 text-primary" />
+                      <CardTitle className="text-lg">Development This Week</CardTitle>
+                    </div>
+                    {typeof ageSummary.correctedAgeWeeks === 'number' && (
+                      <span className="text-xs text-muted-foreground">
+                        Corrected age: <span className="font-semibold">{ageSummary.correctedAgeWeeks} weeks</span>
+                      </span>
+                    )}
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {loadingDevelopment && (
+                      <p className="text-sm text-muted-foreground">
+                        Preparing gentle developmental milestones for this week...
+                      </p>
+                    )}
+
+                    {!loadingDevelopment && developmentThisWeek && (
+                      <div className="space-y-3">
+                        <div className="prose prose-sm max-w-none text-foreground">
+                          {/* Render Gemma response - handle both newline-separated and continuous text */}
+                          {developmentThisWeek.split('\n').filter(line => line.trim()).map((line, idx) => (
+                            <div key={idx} className="text-sm leading-relaxed mb-2">
+                              {line.trim()}
+                            </div>
+                          ))}
+                        </div>
+                        <div className="mt-4 pt-3 border-t border-border/40">
+                          <p className="text-xs text-muted-foreground">
+                            This is general developmental information, not medical advice.
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    {!loadingDevelopment && !developmentThisWeek && (
+                      <p className="text-sm text-muted-foreground">
+                        Gentle developmental highlights for this week will appear here when available.
+                      </p>
+                    )}
+
+                    {(!loadingDevelopment && developmentThisWeek) && (
+                      <p className="text-xs text-muted-foreground border-t border-border/40 pt-3 mt-4">
+                        This is general developmental information, not medical advice.
+                      </p>
+                    )}
                   </CardContent>
                 </Card>
               )}

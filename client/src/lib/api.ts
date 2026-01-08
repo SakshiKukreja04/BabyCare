@@ -142,6 +142,31 @@ export const babiesApi = {
   async getById(babyId: string) {
     return apiRequest<{ baby: any }>(`/api/babies/${babyId}`);
   },
+
+  /**
+   * Get deterministic age summary for dual-timeline tracker
+   */
+  async getAgeSummary(babyId: string) {
+    return apiRequest<{
+      name: string;
+      gestationalAge: number | null;
+      actualAgeWeeks: number;
+      correctedAgeWeeks: number;
+      weeksEarly: number;
+      isPremature: boolean;
+    }>(`/api/babies/${babyId}/age-summary`);
+  },
+
+  /**
+   * Get explainability-only developmental information for this week (premature only)
+   */
+  async getDevelopmentThisWeek(babyId: string) {
+    return apiRequest<{
+      correctedAgeWeeks: number;
+      isPremature: boolean;
+      content: string | null;
+    }>(`/api/babies/${babyId}/development-this-week`);
+  },
 };
 
 /**

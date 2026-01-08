@@ -32,13 +32,52 @@ export async function createUserIfNotExists(user) {
 export async function addBaby(data) {
   // data: { parentId, name, dob, gestationalAge, currentWeight }
   if (!data.parentId) throw new Error("parentId required");
-  return await addDoc(collection(db, "babies"), data);
+
+  const babiesCol = collection(db, "babies");
+
+  // If a baby already exists for this parent, treat this as an update/edit
+  const existingQuery = query(babiesCol, where("parentId", "==", data.parentId), limit(1));
+  const existingSnap = await getDocs(existingQuery);
+
+  if (!existingSnap.empty) {
+    const existingDoc = existingSnap.docs[0];
+    const babyRef = doc(db, "babies", existingDoc.id);
+    await setDoc(
+      babyRef,
+      {
+        ...data,
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    );
+    return babyRef;
+  }
+
+  // Otherwise create a new baby profile with timestamps
+  return await addDoc(babiesCol, {
+    ...data,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
 }
 
 export async function getBabiesByParent(uid) {
-  const q = query(collection(db, "babies"), where("parentId", "==", uid));
+  // Simple query without orderBy to avoid requiring composite index
+  const q = query(
+    collection(db, "babies"),
+    where("parentId", "==", uid)
+  );
   const snap = await getDocs(q);
-  return snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  const babies = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  
+  // Sort in memory by createdAt if available (newest first)
+  babies.sort((a, b) => {
+    const aTime = a.createdAt?.toMillis?.() || a.createdAt?.seconds * 1000 || 0;
+    const bTime = b.createdAt?.toMillis?.() || b.createdAt?.seconds * 1000 || 0;
+    return bTime - aTime; // Descending order
+  });
+  
+  return babies;
 }
 
 // CARE LOGS
