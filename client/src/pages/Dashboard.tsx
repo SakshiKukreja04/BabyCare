@@ -17,9 +17,11 @@ import {
   Sparkles,
   Pill,
   CheckCircle2,
+  Loader2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Separator } from '@/components/ui/separator';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import NutritionAwarenessCard from '@/components/dashboard/NutritionAwarenessCard';
@@ -559,51 +561,140 @@ const Dashboard = () => {
               {/* Development This Week (Gemini explainability-only, premature only) */}
               {ageSummary?.isPremature && (
                 <Card className="border border-primary/20 shadow-card">
-                  <CardHeader className="flex flex-row items-center justify-between gap-2">
+                  <CardHeader className="flex flex-row items-center justify-between gap-2 pb-3">
                     <div className="flex items-center gap-2">
                       <Sparkles className="w-5 h-5 text-primary" />
                       <CardTitle className="text-lg">Development This Week</CardTitle>
                     </div>
                     {typeof ageSummary.correctedAgeWeeks === 'number' && (
-                      <span className="text-xs text-muted-foreground">
-                        Corrected age: <span className="font-semibold">{ageSummary.correctedAgeWeeks} weeks</span>
+                      <span className="text-xs text-muted-foreground bg-primary/10 px-2 py-1 rounded-full">
+                        Corrected age: <span className="font-semibold text-primary">{ageSummary.correctedAgeWeeks} weeks</span>
                       </span>
                     )}
                   </CardHeader>
                   <CardContent className="space-y-4">
                     {loadingDevelopment && (
-                      <p className="text-sm text-muted-foreground">
-                        Preparing gentle developmental milestones for this week...
-                      </p>
-                    )}
-
-                    {!loadingDevelopment && developmentThisWeek && (
-                      <div className="space-y-3">
-                        <div className="prose prose-sm max-w-none text-foreground">
-                          {/* Render Gemma response - handle both newline-separated and continuous text */}
-                          {developmentThisWeek.split('\n').filter(line => line.trim()).map((line, idx) => (
-                            <div key={idx} className="text-sm leading-relaxed mb-2">
-                              {line.trim()}
-                            </div>
-                          ))}
-                        </div>
-                        <div className="mt-4 pt-3 border-t border-border/40">
-                          <p className="text-xs text-muted-foreground">
-                            This is general developmental information, not medical advice.
-                          </p>
-                        </div>
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Preparing developmental milestones for this week...
                       </div>
                     )}
 
+                    {!loadingDevelopment && developmentThisWeek && (() => {
+                      // Parse the content to extract milestones and tips
+                      const lines = developmentThisWeek.split('\n').filter(line => line.trim());
+                      const milestones: string[] = [];
+                      const tips: string[] = [];
+                      let currentSection = '';
+                      let introText = '';
+
+                      lines.forEach(line => {
+                        const trimmed = line.trim();
+                        // Detect milestone markers
+                        if (trimmed.includes('**') && (trimmed.toLowerCase().includes('rolling') || 
+                            trimmed.toLowerCase().includes('sitting') || 
+                            trimmed.toLowerCase().includes('hands') ||
+                            trimmed.toLowerCase().includes('crawling') ||
+                            trimmed.toLowerCase().includes('babbling') ||
+                            trimmed.toLowerCase().includes('grasping'))) {
+                          const milestone = trimmed.replace(/\*\*/g, '').replace(/^[•\-\*]\s*/, '').trim();
+                          if (milestone) milestones.push(milestone);
+                        } else if (trimmed.toLowerCase().includes('play tip') || trimmed.toLowerCase().includes('fun tip')) {
+                          currentSection = 'tip';
+                        } else if (currentSection === 'tip' && trimmed.length > 10 && !trimmed.includes('Remember')) {
+                          const tip = trimmed.replace(/\*\*/g, '').replace(/^[•\-\*]\s*/, '').trim();
+                          if (tip && !tip.toLowerCase().includes('tip:')) tips.push(tip);
+                        } else if (trimmed.length > 30 && !trimmed.includes('milestone') && !trimmed.includes('**') && 
+                                   !trimmed.toLowerCase().includes('remember') && !trimmed.toLowerCase().includes('concern')) {
+                          introText = trimmed.substring(0, 150) + (trimmed.length > 150 ? '...' : '');
+                        }
+                      });
+
+                      // Fallback: extract any bullet points or numbered items
+                      if (milestones.length === 0) {
+                        lines.forEach(line => {
+                          const trimmed = line.trim();
+                          if ((trimmed.startsWith('•') || trimmed.startsWith('-') || trimmed.startsWith('*') || 
+                               /^\d+\./.test(trimmed) || trimmed.startsWith('**')) && 
+                              trimmed.length > 15 && !trimmed.toLowerCase().includes('remember')) {
+                            const cleaned = trimmed.replace(/^\d+\.\s*/, '').replace(/^[•\-\*]\s*/, '').replace(/\*\*/g, '').trim();
+                            if (cleaned) {
+                              if (cleaned.toLowerCase().includes('tip') || cleaned.toLowerCase().includes('play')) {
+                                tips.push(cleaned);
+                              } else {
+                                milestones.push(cleaned);
+                              }
+                            }
+                          }
+                        });
+                      }
+
+                      // If still no milestones, show first few meaningful lines as bullets
+                      if (milestones.length === 0 && lines.length > 0) {
+                        lines.slice(0, 5).forEach(line => {
+                          const trimmed = line.trim();
+                          if (trimmed.length > 20 && !trimmed.toLowerCase().includes('remember') && 
+                              !trimmed.toLowerCase().includes('pediatrician') && !trimmed.toLowerCase().includes('concern')) {
+                            milestones.push(trimmed.substring(0, 120) + (trimmed.length > 120 ? '...' : ''));
+                          }
+                        });
+                      }
+
+                      return (
+                        <div className="space-y-4">
+                          {introText && (
+                            <p className="text-sm text-foreground leading-relaxed">
+                              {introText}
+                            </p>
+                          )}
+
+                          {milestones.length > 0 && (
+                            <div className="space-y-2">
+                              <h4 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                                <span className="w-1.5 h-1.5 rounded-full bg-primary"></span>
+                                Milestones This Week
+                              </h4>
+                              <ul className="space-y-2 ml-4">
+                                {milestones.slice(0, 4).map((milestone, idx) => (
+                                  <li key={idx} className="text-sm text-foreground/90 leading-relaxed list-disc">
+                                    <span className="font-medium">{milestone.split(':')[0]}</span>
+                                    {milestone.includes(':') && (
+                                      <span className="text-muted-foreground">: {milestone.split(':').slice(1).join(':').trim()}</span>
+                                    )}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+
+                          {tips.length > 0 && (
+                            <div className="space-y-2 pt-2 border-t border-border/40">
+                              <h4 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                                <Sparkles className="w-4 h-4 text-primary" />
+                                Play Tip
+                              </h4>
+                              <ul className="space-y-2 ml-4">
+                                {tips.slice(0, 2).map((tip, idx) => (
+                                  <li key={idx} className="text-sm text-foreground/90 leading-relaxed list-disc">
+                                    {tip}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+
+                          <Separator className="my-3" />
+                          
+                          <p className="text-xs text-muted-foreground italic">
+                            This is general developmental information, not medical advice.
+                          </p>
+                        </div>
+                      );
+                    })()}
+
                     {!loadingDevelopment && !developmentThisWeek && (
                       <p className="text-sm text-muted-foreground">
-                        Gentle developmental highlights for this week will appear here when available.
-                      </p>
-                    )}
-
-                    {(!loadingDevelopment && developmentThisWeek) && (
-                      <p className="text-xs text-muted-foreground border-t border-border/40 pt-3 mt-4">
-                        This is general developmental information, not medical advice.
+                        Developmental highlights for this week will appear here when available.
                       </p>
                     )}
                   </CardContent>
@@ -623,57 +714,79 @@ const Dashboard = () => {
                     {prescriptions
                       .filter((p: any) => p.status === 'confirmed' || p.status === 'scheduled')
                       .slice(0, 3)
-                      .map((prescription: any) => {
-                        // Calculate next dose time
-                        const [hours, minutes] = prescription.suggested_start_time.split(':');
-                        const nextDose = new Date();
-                        nextDose.setHours(parseInt(hours, 10), parseInt(minutes, 10), 0, 0);
-                        
-                        // If time has passed today, set for tomorrow
-                        if (nextDose < new Date()) {
-                          nextDose.setDate(nextDose.getDate() + 1);
-                        }
+                      .flatMap((prescription: any) => {
+                        // Handle both old format (single medicine) and new format (medicines array)
+                        const medicines = prescription.medicines || (prescription.medicine_name ? [{
+                          medicine_name: prescription.medicine_name,
+                          dosage: prescription.dosage,
+                          frequency: prescription.frequency,
+                          times_per_day: prescription.times_per_day,
+                          suggested_start_time: prescription.suggested_start_time,
+                        }] : []);
 
-                        const isUpcoming = nextDose > new Date();
-                        const timeStr = nextDose.toLocaleTimeString('en-US', {
-                          hour: 'numeric',
-                          minute: '2-digit',
-                        });
+                        return medicines.map((medicine: any, medIndex: number) => {
+                          // Calculate next dose time
+                          const [hours, minutes] = (medicine.suggested_start_time || '08:00').split(':');
+                          const nextDose = new Date();
+                          nextDose.setHours(parseInt(hours, 10), parseInt(minutes, 10), 0, 0);
+                          
+                          // If time has passed today, set for tomorrow
+                          if (nextDose < new Date()) {
+                            nextDose.setDate(nextDose.getDate() + 1);
+                          }
 
-                        return (
-                          <div
-                            key={prescription.id}
-                            className="p-4 rounded-xl border border-healthcare-peach/20 bg-healthcare-peach/5"
-                          >
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="flex-1">
-                                <div className="flex items-center gap-2 mb-1">
-                                  <Pill className="w-4 h-4 text-healthcare-peach-dark" />
-                                  <span className="font-medium text-foreground">
-                                    {prescription.medicine_name || 'Medication'}
-                                  </span>
+                          const isUpcoming = nextDose > new Date();
+                          const timeStr = nextDose.toLocaleTimeString('en-US', {
+                            hour: 'numeric',
+                            minute: '2-digit',
+                          });
+
+                          return (
+                            <div
+                              key={`${prescription.id}-${medIndex}`}
+                              className="p-4 rounded-xl border border-healthcare-peach/20 bg-healthcare-peach/5"
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="flex-1">
+                                  <div className="flex items-center gap-2 mb-1">
+                                    <Pill className="w-4 h-4 text-healthcare-peach-dark" />
+                                    <span className="font-medium text-foreground">
+                                      {medicine.medicine_name || 'Medication'}
+                                    </span>
+                                    {medicines.length > 1 && (
+                                      <span className="text-xs text-muted-foreground bg-background px-1.5 py-0.5 rounded">
+                                        {medIndex + 1}/{medicines.length}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <p className="text-sm text-muted-foreground mb-2">
+                                    {medicine.dosage || 'As prescribed'} • {medicine.frequency || 'As directed'}
+                                  </p>
+                                  <p className="text-xs text-muted-foreground mb-1">
+                                    {medicine.times_per_day || 2}x per day
+                                  </p>
+                                  {isUpcoming ? (
+                                    <p className="text-xs text-healthcare-peach-dark font-medium">
+                                      Next dose: {timeStr}
+                                    </p>
+                                  ) : (
+                                    <p className="text-xs text-muted-foreground">
+                                      Scheduled for {timeStr}
+                                    </p>
+                                  )}
                                 </div>
-                                <p className="text-sm text-muted-foreground mb-2">
-                                  {prescription.dosage} • {prescription.frequency}
-                                </p>
-                                {isUpcoming ? (
-                                  <p className="text-xs text-healthcare-peach-dark font-medium">
-                                    Next dose: {timeStr} (WhatsApp alert set)
-                                  </p>
-                                ) : (
-                                  <p className="text-xs text-muted-foreground">
-                                    Dose logged at {timeStr}
-                                  </p>
+                                {!isUpcoming && (
+                                  <CheckCircle2 className="w-5 h-5 text-alert-success flex-shrink-0" />
                                 )}
                               </div>
-                              {!isUpcoming && (
-                                <CheckCircle2 className="w-5 h-5 text-alert-success flex-shrink-0" />
-                              )}
                             </div>
-                          </div>
-                        );
+                          );
+                        });
                       })}
-                    {prescriptions.filter((p: any) => p.status === 'confirmed' || p.status === 'scheduled').length === 0 && (
+                    {prescriptions.filter((p: any) => {
+                      const medicines = p.medicines || (p.medicine_name ? [p] : []);
+                      return (p.status === 'confirmed' || p.status === 'scheduled') && medicines.length > 0;
+                    }).length === 0 && (
                       <p className="text-sm text-muted-foreground text-center py-4">
                         No active medication schedules
                       </p>

@@ -35,7 +35,7 @@ app.use('/api/care-logs', careLogsRoutes);
 app.use('/api/alerts', alertsRoutes);
 app.use('/api/chatbot', chatbotRoutes);
 app.use('/api/babies', babiesRoutes);
-app.use('/api', prescriptionsRoutes);
+app.use('/api/prescriptions', prescriptionsRoutes);
 
 // 404 handler
 app.use((req, res) => {

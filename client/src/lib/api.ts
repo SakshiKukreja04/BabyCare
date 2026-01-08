@@ -179,15 +179,16 @@ export const prescriptionsApi = {
   async scanPrescription(babyId: string, imageBase64: string) {
     return apiRequest<{
       prescriptionId: string;
-      extractedData: {
+      medicines: Array<{
         medicine_name: string;
         dosage: string;
         frequency: string;
         times_per_day: number;
         suggested_start_time: string;
-      };
+        dose_schedule?: string[]; // Array of all dose times
+      }>;
       raw_ai_output: string;
-    }>('/api/scan-prescription', {
+    }>('/api/prescriptions/scan-prescription', {
       method: 'POST',
       body: JSON.stringify({ babyId, imageBase64 }),
     });
@@ -198,13 +199,14 @@ export const prescriptionsApi = {
    */
   async confirmPrescription(
     prescriptionId: string,
-    data: {
-      medicine_name?: string;
-      dosage?: string;
-      frequency?: string;
-      times_per_day?: number;
-      suggested_start_time?: string;
-    }
+    medicines: Array<{
+      medicine_name: string;
+      dosage: string;
+      frequency: string;
+      times_per_day: number;
+      suggested_start_time: string;
+      dose_schedule?: string[]; // Optional: will be calculated on backend if not provided
+    }>
   ) {
     return apiRequest<{
       prescriptionId: string;
@@ -212,7 +214,7 @@ export const prescriptionsApi = {
       message: string;
     }>(`/api/prescriptions/${prescriptionId}/confirm`, {
       method: 'POST',
-      body: JSON.stringify(data),
+      body: JSON.stringify({ medicines }),
     });
   },
 

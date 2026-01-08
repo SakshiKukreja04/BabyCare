@@ -4,8 +4,14 @@ const { db, admin } = require('../firebaseAdmin');
 const { verifyToken } = require('../middleware/auth');
 const { extractPrescriptionData } = require('../services/medgemma');
 
+// Log all prescription routes for debugging
+router.use((req, res, next) => {
+  console.log(`📋 [Prescription Router] ${req.method} ${req.path}`);
+  next();
+});
+
 /**
- * POST /scan-prescription
+ * POST /prescriptions/scan-prescription
  * Scan a prescription image and extract medication information
  * 
  * Request body:
@@ -62,23 +68,27 @@ router.post('/scan-prescription', verifyToken, async (req, res) => {
       });
     }
 
-    // Extract prescription data using MedGemma
+    // Extract prescription data using Gemini Vision API
     console.log('🔍 [Prescription] Extracting medication data from image...');
     const extractedData = await extractPrescriptionData(imageBase64);
-    console.log('✅ [Prescription] Extracted data:', extractedData);
+    console.log('✅ [Prescription] Extracted data:', JSON.stringify(extractedData, null, 2));
 
-    // Create prescription log in Firestore
+    // Validate that medicines array exists
+    if (!extractedData.medicines || !Array.isArray(extractedData.medicines) || extractedData.medicines.length === 0) {
+      return res.status(400).json({
+        error: 'Bad Request',
+        message: 'Failed to extract medication information from image. Please try again or enter manually.',
+      });
+    }
+
+    // Create prescription log in Firestore with medicines array
     const prescriptionRef = db.collection('prescriptionLogs').doc();
     const prescriptionData = {
       id: prescriptionRef.id,
       babyId,
       parentId,
       status: 'scheduled', // scheduled, confirmed, completed, cancelled
-      medicine_name: extractedData.medicine_name,
-      dosage: extractedData.dosage,
-      frequency: extractedData.frequency,
-      times_per_day: extractedData.times_per_day,
-      suggested_start_time: extractedData.suggested_start_time,
+      medicines: extractedData.medicines, // Array of medicines
       raw_ai_output: extractedData.raw_ai_output,
       imageBase64: imageBase64.substring(0, 100) + '...', // Store truncated version for reference
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -94,13 +104,7 @@ router.post('/scan-prescription', verifyToken, async (req, res) => {
       success: true,
       data: {
         prescriptionId: prescriptionRef.id,
-        extractedData: {
-          medicine_name: extractedData.medicine_name,
-          dosage: extractedData.dosage,
-          frequency: extractedData.frequency,
-          times_per_day: extractedData.times_per_day,
-          suggested_start_time: extractedData.suggested_start_time,
-        },
+        medicines: extractedData.medicines,
         raw_ai_output: extractedData.raw_ai_output,
       },
     });
@@ -127,9 +131,12 @@ router.post('/scan-prescription', verifyToken, async (req, res) => {
  * }
  */
 router.post('/:prescriptionId/confirm', verifyToken, async (req, res) => {
+  console.log('✅ [Prescription Confirm] Received confirmation request');
+  console.log('   - Prescription ID:', req.params.prescriptionId);
+  console.log('   - Request body:', JSON.stringify(req.body, null, 2));
   try {
     const { prescriptionId } = req.params;
-    const { medicine_name, dosage, frequency, times_per_day, suggested_start_time } = req.body;
+    const { medicines } = req.body; // Expect array of medicines
     const parentId = req.user.uid;
 
     // Fetch prescription
@@ -153,19 +160,51 @@ router.post('/:prescriptionId/confirm', verifyToken, async (req, res) => {
       });
     }
 
-    // Update prescription with confirmed/edited data
-    const updateData = {
+    // Validate medicines array
+    if (!medicines || !Array.isArray(medicines) || medicines.length === 0) {
+      return res.status(400).json({
+        error: 'Bad Request',
+        message: 'medicines array is required and must contain at least one medicine',
+      });
+    }
+
+    // Process medicines: calculate proper start times and dose schedules
+    const processedMedicines = medicines.map((med, index) => {
+      const frequency = med.frequency || 'As directed';
+      const timesPerDay = typeof med.times_per_day === 'number' ? med.times_per_day : 2;
+      const startTime = med.suggested_start_time || '08:00';
+      
+      // Calculate dose times based on frequency and times_per_day
+      // Use dose_schedule from frontend if provided, otherwise calculate
+      const doseTimes = med.dose_schedule && Array.isArray(med.dose_schedule) && med.dose_schedule.length > 0
+        ? med.dose_schedule
+        : calculateDoseSchedule(frequency, timesPerDay, startTime);
+      
+      return {
+        medicine_name: med.medicine_name || `Medicine ${index + 1}`,
+        dosage: med.dosage || 'As prescribed',
+        frequency: frequency,
+        times_per_day: timesPerDay,
+        suggested_start_time: doseTimes[0] || startTime, // First dose time
+        dose_schedule: doseTimes, // Array of all dose times for reminders (e.g., ["06:00", "12:00", "18:00", "00:00"])
+        last_given: null, // Track last administered dose timestamp
+        last_given_index: null, // Track which dose schedule index was last given
+        next_dose_index: 0, // Track which dose is next in the schedule
+        created_at: admin.firestore.FieldValue.serverTimestamp(), // When this medicine schedule was created
+      };
+    });
+
+    console.log('✅ [Prescription Confirm] Processed medicines:', JSON.stringify(processedMedicines, null, 2));
+
+    // Update prescription with confirmed/edited medicines array and schedule
+    await prescriptionRef.update({
+      medicines: processedMedicines,
       status: 'confirmed',
+      confirmedAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    };
+    });
 
-    if (medicine_name !== undefined) updateData.medicine_name = medicine_name;
-    if (dosage !== undefined) updateData.dosage = dosage;
-    if (frequency !== undefined) updateData.frequency = frequency;
-    if (times_per_day !== undefined) updateData.times_per_day = parseInt(times_per_day, 10);
-    if (suggested_start_time !== undefined) updateData.suggested_start_time = suggested_start_time;
-
-    await prescriptionRef.update(updateData);
+    console.log('✅ [Prescription Confirm] Prescription confirmed and scheduled in Firestore');
 
     res.json({
       success: true,
@@ -252,5 +291,111 @@ router.get('/', verifyToken, async (req, res) => {
     });
   }
 });
+
+/**
+ * Calculate dose schedule based on frequency and times per day
+ * Returns array of times (HH:mm format) when doses should be given
+ */
+function calculateDoseSchedule(frequency, timesPerDay, suggestedStartTime) {
+  const freqLower = frequency.toLowerCase();
+  const times = [];
+  
+  // Parse suggested start time or default to 08:00
+  let startHour = 8;
+  let startMinute = 0;
+  if (suggestedStartTime && suggestedStartTime.includes(':')) {
+    const [h, m] = suggestedStartTime.split(':').map(Number);
+    if (!isNaN(h) && h >= 0 && h < 24) startHour = h;
+    if (!isNaN(m) && m >= 0 && m < 60) startMinute = m;
+  }
+  
+  // Handle "every X hours" frequency
+  const everyHoursMatch = freqLower.match(/(?:every|each)\s+(\d+)\s*(?:-|\s)?\s*(?:hour|hr|h)/);
+  if (everyHoursMatch) {
+    const hoursBetweenDoses = parseInt(everyHoursMatch[1], 10);
+    if (hoursBetweenDoses > 0 && hoursBetweenDoses <= 24) {
+      // Calculate dose times based on interval
+      for (let i = 0; i < timesPerDay; i++) {
+        const doseHour = (startHour + (i * hoursBetweenDoses)) % 24;
+        times.push(`${String(doseHour).padStart(2, '0')}:${String(startMinute).padStart(2, '0')}`);
+      }
+      return times.sort((a, b) => {
+        const [h1, m1] = a.split(':').map(Number);
+        const [h2, m2] = b.split(':').map(Number);
+        return h1 * 60 + m1 - (h2 * 60 + m2);
+      });
+    }
+  }
+  
+  // Handle once daily
+  if (timesPerDay === 1 || freqLower.includes('once daily') || freqLower.includes('once a day')) {
+    return [`${String(startHour).padStart(2, '0')}:${String(startMinute).padStart(2, '0')}`];
+  }
+  
+  // Handle twice daily (morning and evening)
+  if (timesPerDay === 2 || freqLower.includes('twice daily') || freqLower.includes('twice a day')) {
+    return [
+      `${String(startHour).padStart(2, '0')}:${String(startMinute).padStart(2, '0')}`, // Morning
+      `${String((startHour + 12) % 24).padStart(2, '0')}:${String(startMinute).padStart(2, '0')}`, // Evening (12 hours later)
+    ];
+  }
+  
+  // Handle thrice daily (morning, afternoon, evening)
+  if (timesPerDay === 3 || freqLower.includes('thrice') || freqLower.includes('three times')) {
+    return [
+      `${String(startHour).padStart(2, '0')}:${String(startMinute).padStart(2, '0')}`, // Morning
+      `${String((startHour + 8) % 24).padStart(2, '0')}:${String(startMinute).padStart(2, '0')}`, // Afternoon (8 hours later)
+      `${String((startHour + 16) % 24).padStart(2, '0')}:${String(startMinute).padStart(2, '0')}`, // Evening (16 hours later)
+    ];
+  }
+  
+  // Handle 4 times per day (every 6 hours)
+  if (timesPerDay === 4) {
+    return [
+      `${String(startHour).padStart(2, '0')}:${String(startMinute).padStart(2, '0')}`, // 06:00
+      `${String((startHour + 6) % 24).padStart(2, '0')}:${String(startMinute).padStart(2, '0')}`, // 12:00
+      `${String((startHour + 12) % 24).padStart(2, '0')}:${String(startMinute).padStart(2, '0')}`, // 18:00
+      `${String((startHour + 18) % 24).padStart(2, '0')}:${String(startMinute).padStart(2, '0')}`, // 00:00
+    ];
+  }
+  
+  // Handle 5-6 times per day (every 4-5 hours)
+  if (timesPerDay === 5) {
+    const interval = 4.8; // Approximately every 4.8 hours
+    for (let i = 0; i < 5; i++) {
+      const totalMinutes = startHour * 60 + startMinute + (i * interval * 60);
+      const doseHour = Math.floor((totalMinutes / 60) % 24);
+      const doseMin = Math.floor(totalMinutes % 60);
+      times.push(`${String(doseHour).padStart(2, '0')}:${String(doseMin).padStart(2, '0')}`);
+    }
+    return times;
+  }
+  
+  if (timesPerDay === 6) {
+    const interval = 4; // Every 4 hours
+    for (let i = 0; i < 6; i++) {
+      const totalMinutes = startHour * 60 + startMinute + (i * interval * 60);
+      const doseHour = Math.floor((totalMinutes / 60) % 24);
+      const doseMin = Math.floor(totalMinutes % 60);
+      times.push(`${String(doseHour).padStart(2, '0')}:${String(doseMin).padStart(2, '0')}`);
+    }
+    return times;
+  }
+  
+  // Default: distribute evenly across 24 hours starting from start time
+  const intervalHours = 24 / timesPerDay;
+  for (let i = 0; i < timesPerDay; i++) {
+    const totalMinutes = startHour * 60 + startMinute + (i * intervalHours * 60);
+    const doseHour = Math.floor((totalMinutes / 60) % 24);
+    const doseMin = Math.floor(totalMinutes % 60);
+    times.push(`${String(doseHour).padStart(2, '0')}:${String(doseMin).padStart(2, '0')}`);
+  }
+  
+  return times.sort((a, b) => {
+    const [h1, m1] = a.split(':').map(Number);
+    const [h2, m2] = b.split(':').map(Number);
+    return h1 * 60 + m1 - (h2 * 60 + m2);
+  });
+}
 
 module.exports = router;
