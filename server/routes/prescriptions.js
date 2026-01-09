@@ -4,6 +4,60 @@ const { db, admin } = require('../firebaseAdmin');
 const { verifyToken } = require('../middleware/auth');
 const { extractPrescriptionData } = require('../services/medgemma');
 
+/**
+ * GET /prescriptions/logs
+ * Fetch all prescription logs for the authenticated user (parentId)
+ *
+ * Query params (optional):
+ *   babyId: string (to filter by baby - filtered on client side)
+ */
+router.get('/logs', verifyToken, async (req, res) => {
+  try {
+    const parentId = req.user.uid;
+    const { babyId } = req.query;
+    console.log('📋 [Prescription Logs] GET /logs - parentId:', parentId, 'babyId:', babyId);
+    
+    // Query only by parentId - no orderBy to avoid index requirement
+    const query = db.collection('prescriptionLogs').where('parentId', '==', parentId);
+    
+    console.log('📋 [Prescription Logs] Executing query...');
+    const snapshot = await query.get();
+    console.log('📋 [Prescription Logs] Query returned', snapshot.size, 'documents');
+    
+    let logs = snapshot.docs.map(doc => {
+      const data = doc.data();
+      console.log('📋 [Prescription Logs] Document:', doc.id, 'babyId:', data.babyId, 'status:', data.status);
+      return {
+        id: doc.id,
+        ...data,
+        // Convert Firestore Timestamp to ISO string if needed
+        createdAt: data.createdAt?.toDate?.() || data.createdAt,
+        updatedAt: data.updatedAt?.toDate?.() || data.updatedAt,
+        confirmedAt: data.confirmedAt?.toDate?.() || data.confirmedAt,
+      };
+    });
+
+    // Filter by babyId if provided (client-side filtering)
+    if (babyId) {
+      console.log('📋 [Prescription Logs] Filtering by babyId:', babyId);
+      logs = logs.filter(log => log.babyId === babyId);
+    }
+
+    // Sort by createdAt descending (newest first)
+    logs.sort((a, b) => {
+      const timeA = a.createdAt?.getTime?.() || new Date(a.createdAt).getTime() || 0;
+      const timeB = b.createdAt?.getTime?.() || new Date(b.createdAt).getTime() || 0;
+      return timeB - timeA;
+    });
+
+    console.log('✅ [Prescription Logs] Returning', logs.length, 'logs');
+    res.json({ success: true, logs });
+  } catch (error) {
+    console.error('❌ [Prescription Logs] Error:', error.message);
+    res.status(500).json({ error: 'Internal Server Error', message: error.message || 'Failed to fetch logs' });
+  }
+});
+
 // Log all prescription routes for debugging
 router.use((req, res, next) => {
   console.log(`📋 [Prescription Router] ${req.method} ${req.path}`);
@@ -190,7 +244,7 @@ router.post('/:prescriptionId/confirm', verifyToken, async (req, res) => {
         last_given: null, // Track last administered dose timestamp
         last_given_index: null, // Track which dose schedule index was last given
         next_dose_index: 0, // Track which dose is next in the schedule
-        created_at: admin.firestore.FieldValue.serverTimestamp(), // When this medicine schedule was created
+        created_at: Date.now(), // When this medicine schedule was created
       };
     });
 

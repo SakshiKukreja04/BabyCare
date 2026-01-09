@@ -194,11 +194,25 @@ const PrescriptionReviewModal = ({
    * Calculate dose schedule based on frequency and times_per_day
    */
   const calculateDoseSchedule = (frequency: string, timesPerDay: number, startTime: string): string[] => {
+    console.log('🕐 [calculateDoseSchedule] frequency:', frequency, 'timesPerDay:', timesPerDay, 'startTime:', startTime);
     const times: string[] = [];
     const freqLower = frequency.toLowerCase();
     
-    // Parse start time
-    const [startHour, startMin] = startTime.split(':').map(Number);
+    // Parse start time - handle both "HH:MM" format and invalid formats
+    let startHour = 8;
+    let startMin = 0;
+    
+    if (startTime && startTime.includes(':')) {
+      const parts = startTime.split(':').map(Number);
+      if (parts.length >= 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+        startHour = parts[0];
+        startMin = parts[1];
+      } else {
+        console.warn('⚠️  Invalid start time format:', startTime);
+      }
+    }
+    
+    console.log('🕐 [calculateDoseSchedule] Parsed startHour:', startHour, 'startMin:', startMin);
     
     // Handle "every X hours" or "every X-Y hours"
     const everyHoursMatch = freqLower.match(/(?:every|each)\s+(\d+)\s*(?:-|\s+(\d+))?\s*(?:hour|hr|h)/);
@@ -211,43 +225,53 @@ const PrescriptionReviewModal = ({
         const doseHour = (startHour + (i * hoursBetweenDoses)) % 24;
         times.push(`${String(doseHour).padStart(2, '0')}:${String(startMin).padStart(2, '0')}`);
       }
-      return times.sort((a, b) => {
+      const result = times.sort((a, b) => {
         const [h1, m1] = a.split(':').map(Number);
         const [h2, m2] = b.split(':').map(Number);
         return h1 * 60 + m1 - (h2 * 60 + m2);
       });
+      console.log('🕐 [calculateDoseSchedule] Every X hours result:', result);
+      return result;
     }
     
     // Once daily
     if (timesPerDay === 1) {
-      return [startTime];
+      const formattedTime = `${String(startHour).padStart(2, '0')}:${String(startMin).padStart(2, '0')}`;
+      console.log('🕐 [calculateDoseSchedule] Once daily:', [formattedTime]);
+      return [formattedTime];
     }
     
     // Twice daily (morning and evening)
     if (timesPerDay === 2) {
-      return [
-        startTime,
+      const result = [
+        `${String(startHour).padStart(2, '0')}:${String(startMin).padStart(2, '0')}`,
         `${String((startHour + 12) % 24).padStart(2, '0')}:${String(startMin).padStart(2, '0')}`,
       ];
+      console.log('🕐 [calculateDoseSchedule] Twice daily:', result);
+      return result;
     }
     
     // Thrice daily
     if (timesPerDay === 3) {
-      return [
-        startTime,
+      const result = [
+        `${String(startHour).padStart(2, '0')}:${String(startMin).padStart(2, '0')}`,
         `${String((startHour + 8) % 24).padStart(2, '0')}:${String(startMin).padStart(2, '0')}`,
         `${String((startHour + 16) % 24).padStart(2, '0')}:${String(startMin).padStart(2, '0')}`,
       ];
+      console.log('🕐 [calculateDoseSchedule] Thrice daily:', result);
+      return result;
     }
     
     // 4 times per day (every 6 hours)
     if (timesPerDay === 4) {
-      return [
+      const result = [
         `${String(startHour).padStart(2, '0')}:${String(startMin).padStart(2, '0')}`,
         `${String((startHour + 6) % 24).padStart(2, '0')}:${String(startMin).padStart(2, '0')}`,
         `${String((startHour + 12) % 24).padStart(2, '0')}:${String(startMin).padStart(2, '0')}`,
         `${String((startHour + 18) % 24).padStart(2, '0')}:${String(startMin).padStart(2, '0')}`,
       ];
+      console.log('🕐 [calculateDoseSchedule] 4 times daily:', result);
+      return result;
     }
     
     // Default: distribute evenly
@@ -259,11 +283,13 @@ const PrescriptionReviewModal = ({
       times.push(`${String(doseHour).padStart(2, '0')}:${String(doseMin).padStart(2, '0')}`);
     }
     
-    return times.sort((a, b) => {
+    const result = times.sort((a, b) => {
       const [h1, m1] = a.split(':').map(Number);
       const [h2, m2] = b.split(':').map(Number);
       return h1 * 60 + m1 - (h2 * 60 + m2);
     });
+    console.log('🕐 [calculateDoseSchedule] Default distributed:', result);
+    return result;
   };
 
   const updateMedicine = (index: number, field: keyof Medicine, value: any) => {
@@ -492,15 +518,17 @@ const PrescriptionReviewModal = ({
                           <div className="pt-2 border-t border-border/40">
                             <span className="text-muted-foreground text-sm block mb-2">Dose Schedule:</span>
                             <div className="flex flex-wrap gap-2">
-                              {medicine.dose_schedule.map((time, timeIndex) => (
-                                <span
-                                  key={timeIndex}
-                                  className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-primary/10 text-primary border border-primary/20"
-                                >
-                                  <Clock className="w-3 h-3 mr-1" />
-                                  {time}
-                                </span>
-                              ))}
+                              {medicine.dose_schedule
+                                .filter((time: string) => time && !time.includes('NaN'))
+                                .map((time: string, timeIndex: number) => (
+                                  <span
+                                    key={timeIndex}
+                                    className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-primary/10 text-primary border border-primary/20"
+                                  >
+                                    <Clock className="w-3 h-3 mr-1" />
+                                    {time}
+                                  </span>
+                                ))}
                             </div>
                             <p className="text-xs text-muted-foreground mt-2">
                               Doses will be scheduled at these times throughout the day

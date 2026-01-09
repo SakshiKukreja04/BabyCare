@@ -227,6 +227,15 @@ export const prescriptionsApi = {
       count: number;
     }>(`/api/prescriptions?babyId=${babyId}`);
   },
+
+  /**
+   * Get medication logs for the current user (optionally filtered by babyId)
+   */
+  async getMedicationLogs(babyId?: string) {
+    let url = '/api/prescriptions/logs';
+    if (babyId) url += `?babyId=${babyId}`;
+    return apiRequest<{ logs: any[] }>(url);
+  },
 };
 
 /**

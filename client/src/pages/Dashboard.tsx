@@ -27,6 +27,7 @@ import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import NutritionAwarenessCard from '@/components/dashboard/NutritionAwarenessCard';
 import RuleExplanationModal from '@/components/dashboard/RuleExplanationModal';
 import MoodCheckInWidget from '@/components/dashboard/MoodCheckInWidget';
+import QuickPrescriptionModal from '@/components/prescription/QuickPrescriptionModal';
 
 const Dashboard = () => {
   const { t } = useLanguage();
@@ -53,6 +54,8 @@ const Dashboard = () => {
   });
   const [showAllLogs, setShowAllLogs] = useState(false);
   const [prescriptions, setPrescriptions] = useState<any[]>([]);
+  const [medicationLogs, setMedicationLogs] = useState<any[]>([]);
+  const [showPrescriptionModal, setShowPrescriptionModal] = useState(false);
 
   useEffect(() => {
     async function fetchBabyAndLogs() {
@@ -257,6 +260,29 @@ const Dashboard = () => {
 
     fetchDevelopmentThisWeek();
   }, [ageSummary, babyId]);
+
+  // Fetch medication logs
+  useEffect(() => {
+    async function fetchMedicationLogs() {
+      if (!user || !babyId) {
+        console.log('⏭️  [Dashboard] Skipping medication logs fetch - user:', !!user, 'babyId:', babyId);
+        return;
+      }
+      try {
+        console.log('📋 [Dashboard] Starting medication logs fetch for babyId:', babyId);
+        const logsData = await prescriptionsApi.getMedicationLogs(babyId);
+        console.log('📋 [Dashboard] Medication logs response:', logsData);
+        console.log('📋 [Dashboard] Logs array:', logsData.logs);
+        setMedicationLogs(logsData.logs || []);
+        console.log('✅ [Dashboard] Set medication logs state with', (logsData.logs || []).length, 'logs');
+      } catch (error: any) {
+        console.error('❌ [Dashboard] Error fetching medication logs:', error);
+        console.error('Error details:', error.message);
+        setMedicationLogs([]);
+      }
+    }
+    fetchMedicationLogs();
+  }, [user, babyId]);
 
   // Helper functions
   function getAgeMonths(dob?: string) {
@@ -581,109 +607,81 @@ const Dashboard = () => {
                     )}
 
                     {!loadingDevelopment && developmentThisWeek && (() => {
-                      // Parse the content to extract milestones and tips
-                      const lines = developmentThisWeek.split('\n').filter(line => line.trim());
-                      const milestones: string[] = [];
-                      const tips: string[] = [];
-                      let currentSection = '';
-                      let introText = '';
-
-                      lines.forEach(line => {
-                        const trimmed = line.trim();
-                        // Detect milestone markers
-                        if (trimmed.includes('**') && (trimmed.toLowerCase().includes('rolling') || 
-                            trimmed.toLowerCase().includes('sitting') || 
-                            trimmed.toLowerCase().includes('hands') ||
-                            trimmed.toLowerCase().includes('crawling') ||
-                            trimmed.toLowerCase().includes('babbling') ||
-                            trimmed.toLowerCase().includes('grasping'))) {
-                          const milestone = trimmed.replace(/\*\*/g, '').replace(/^[•\-\*]\s*/, '').trim();
-                          if (milestone) milestones.push(milestone);
-                        } else if (trimmed.toLowerCase().includes('play tip') || trimmed.toLowerCase().includes('fun tip')) {
-                          currentSection = 'tip';
-                        } else if (currentSection === 'tip' && trimmed.length > 10 && !trimmed.includes('Remember')) {
-                          const tip = trimmed.replace(/\*\*/g, '').replace(/^[•\-\*]\s*/, '').trim();
-                          if (tip && !tip.toLowerCase().includes('tip:')) tips.push(tip);
-                        } else if (trimmed.length > 30 && !trimmed.includes('milestone') && !trimmed.includes('**') && 
-                                   !trimmed.toLowerCase().includes('remember') && !trimmed.toLowerCase().includes('concern')) {
-                          introText = trimmed.substring(0, 150) + (trimmed.length > 150 ? '...' : '');
-                        }
-                      });
-
-                      // Fallback: extract any bullet points or numbered items
-                      if (milestones.length === 0) {
-                        lines.forEach(line => {
-                          const trimmed = line.trim();
-                          if ((trimmed.startsWith('•') || trimmed.startsWith('-') || trimmed.startsWith('*') || 
-                               /^\d+\./.test(trimmed) || trimmed.startsWith('**')) && 
-                              trimmed.length > 15 && !trimmed.toLowerCase().includes('remember')) {
-                            const cleaned = trimmed.replace(/^\d+\.\s*/, '').replace(/^[•\-\*]\s*/, '').replace(/\*\*/g, '').trim();
-                            if (cleaned) {
-                              if (cleaned.toLowerCase().includes('tip') || cleaned.toLowerCase().includes('play')) {
-                                tips.push(cleaned);
-                              } else {
-                                milestones.push(cleaned);
-                              }
-                            }
-                          }
-                        });
-                      }
-
-                      // If still no milestones, show first few meaningful lines as bullets
-                      if (milestones.length === 0 && lines.length > 0) {
-                        lines.slice(0, 5).forEach(line => {
-                          const trimmed = line.trim();
-                          if (trimmed.length > 20 && !trimmed.toLowerCase().includes('remember') && 
-                              !trimmed.toLowerCase().includes('pediatrician') && !trimmed.toLowerCase().includes('concern')) {
-                            milestones.push(trimmed.substring(0, 120) + (trimmed.length > 120 ? '...' : ''));
-                          }
-                        });
-                      }
-
+                      // Parse markdown-formatted content compactly
+                      const content = developmentThisWeek;
+                      
+                      // Split by sections (headers with ** markers)
+                      const parts = content.split(/(\*\*[^*]+\*\*)/);
+                      
                       return (
-                        <div className="space-y-4">
-                          {introText && (
-                            <p className="text-sm text-foreground leading-relaxed">
-                              {introText}
-                            </p>
-                          )}
+                        <div className="space-y-2">
+                          {parts.map((part, idx) => {
+                            if (!part || !part.trim()) return null;
+                            
+                            // Check if this is a header (surrounded by **)
+                            const isHeader = part.startsWith('**') && part.endsWith('**');
+                            
+                            if (isHeader) {
+                              // Extract header text
+                              const headerText = part.replace(/\*\*/g, '').trim();
+                              return (
+                                <div key={idx} className="mt-3">
+                                  <h4 className="text-sm font-bold text-foreground flex items-center gap-2">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-primary"></span>
+                                    {headerText}
+                                  </h4>
+                                </div>
+                              );
+                            } else {
+                              // Regular content - parse for bullet points and numbered lists
+                              const lines = part.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+                              
+                              return (
+                                <div key={idx} className="space-y-1">
+                                  {lines.map((line, lineIdx) => {
+                                    // Skip single bullet points with no content
+                                    if (line === '•' || line === '-' || line === '*') return null;
+                                    
+                                    // Check for numbered list items
+                                    const numberedMatch = line.match(/^(\d+)\.\s*\*\*(.+?)\*\*:?\s*(.*)/);
+                                    if (numberedMatch) {
+                                      const [, num, title, description] = numberedMatch;
+                                      return (
+                                        <div key={lineIdx} className="text-sm text-foreground/90">
+                                          <span className="font-semibold">{num}. {title}:</span>
+                                          {description && <span className="text-muted-foreground ml-1">{description}</span>}
+                                        </div>
+                                      );
+                                    }
+                                    
+                                    // Check for simple bullet points
+                                    const bulletMatch = line.match(/^[\•\-\*]\s*(.*)/);
+                                    if (bulletMatch && bulletMatch[1]) {
+                                      return (
+                                        <div key={lineIdx} className="text-sm text-foreground/90 flex gap-2">
+                                          <span className="text-primary flex-shrink-0">•</span>
+                                          <span>{bulletMatch[1].replace(/\*\*/g, '')}</span>
+                                        </div>
+                                      );
+                                    }
+                                    
+                                    // Regular paragraphs
+                                    if (line.length > 15 && !line.includes('**')) {
+                                      return (
+                                        <p key={lineIdx} className="text-sm text-foreground/90 leading-snug">
+                                          {line}
+                                        </p>
+                                      );
+                                    }
+                                    
+                                    return null;
+                                  })}
+                                </div>
+                              );
+                            }
+                          })}
 
-                          {milestones.length > 0 && (
-                            <div className="space-y-2">
-                              <h4 className="text-sm font-semibold text-foreground flex items-center gap-2">
-                                <span className="w-1.5 h-1.5 rounded-full bg-primary"></span>
-                                Milestones This Week
-                              </h4>
-                              <ul className="space-y-2 ml-4">
-                                {milestones.slice(0, 4).map((milestone, idx) => (
-                                  <li key={idx} className="text-sm text-foreground/90 leading-relaxed list-disc">
-                                    <span className="font-medium">{milestone.split(':')[0]}</span>
-                                    {milestone.includes(':') && (
-                                      <span className="text-muted-foreground">: {milestone.split(':').slice(1).join(':').trim()}</span>
-                                    )}
-                                  </li>
-                                ))}
-                              </ul>
-                            </div>
-                          )}
-
-                          {tips.length > 0 && (
-                            <div className="space-y-2 pt-2 border-t border-border/40">
-                              <h4 className="text-sm font-semibold text-foreground flex items-center gap-2">
-                                <Sparkles className="w-4 h-4 text-primary" />
-                                Play Tip
-                              </h4>
-                              <ul className="space-y-2 ml-4">
-                                {tips.slice(0, 2).map((tip, idx) => (
-                                  <li key={idx} className="text-sm text-foreground/90 leading-relaxed list-disc">
-                                    {tip}
-                                  </li>
-                                ))}
-                              </ul>
-                            </div>
-                          )}
-
-                          <Separator className="my-3" />
+                          <Separator className="my-2" />
                           
                           <p className="text-xs text-muted-foreground italic">
                             This is general developmental information, not medical advice.
@@ -963,6 +961,84 @@ const Dashboard = () => {
               {/* Mood Check-in Widget (Emotional Safety Guardrail) */}
               <MoodCheckInWidget />
 
+              {/* Medication Logs Section */}
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="flex items-center gap-2">
+                      <Pill className="w-5 h-5 text-healthcare-peach-dark" />
+                      Prescription Logs
+                    </CardTitle>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {medicationLogs.length === 0 ? (
+                    <div className="text-center py-6">
+                      <Pill className="w-8 h-8 text-muted-foreground/40 mx-auto mb-2" />
+                      <p className="text-sm text-muted-foreground mb-4">No medication logs yet</p>
+                      <Button 
+                        onClick={() => setShowPrescriptionModal(true)}
+                        className="w-full gap-2"
+                      >
+                        <Plus className="w-4 h-4" />
+                        Add Medication Log
+                      </Button>
+                    </div>
+                  ) : (
+                    <>
+                      {medicationLogs.slice(0, 3).map((log, idx) => (
+                        <div key={log.id || idx} className="flex flex-col p-3 bg-healthcare-peach/10 rounded-xl border border-healthcare-peach/20">
+                          <div className="flex items-start justify-between mb-2">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2 mb-1">
+                                <Pill className="w-4 h-4 text-healthcare-peach-dark" />
+                                <span className="font-medium text-foreground text-sm">
+                                  {log.medicines && log.medicines.length > 0 
+                                    ? log.medicines.map((m: any) => m.medicine_name).join(', ') 
+                                    : 'Medication'}
+                                </span>
+                              </div>
+                              {/* Show dosage and frequency for each medicine */}
+                              {log.medicines && log.medicines.length > 0 && (
+                                <div className="ml-6 space-y-1 mb-2">
+                                  {log.medicines.map((med: any, medIdx: number) => (
+                                    <div key={medIdx} className="text-xs text-muted-foreground">
+                                      <p className="font-medium text-foreground text-xs mb-1">{med.medicine_name}</p>
+                                      {med.dosage && <p>💊 Dosage: {med.dosage}</p>}
+                                      {med.frequency && <p>🕐 Frequency: {med.frequency}</p>}
+                                      {med.times_per_day && <p>📅 Times per day: {med.times_per_day}</p>}
+                                      {med.suggested_start_time && (
+                                        <p>⏰ Start time: {med.suggested_start_time}</p>
+                                      )}
+                                      {med.dose_schedule && Array.isArray(med.dose_schedule) && med.dose_schedule.length > 0 && (
+                                        <p>🔔 Reminder times: {med.dose_schedule.filter((t: string) => t && !t.includes('NaN')).join(', ')}</p>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                              <p className="text-xs text-muted-foreground">
+                                Added: {formatTimestamp(log.createdAt)}
+                              </p>
+                            </div>
+                            <span className="text-xs px-2 py-1 rounded-full bg-healthcare-peach/20 text-healthcare-peach-dark font-semibold flex-shrink-0">
+                              {log.status || 'confirmed'}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                      <Button 
+                        onClick={() => setShowPrescriptionModal(true)}
+                        className="w-full mt-3 gap-2"
+                      >
+                        <Plus className="w-4 h-4" />
+                        Add New Log
+                      </Button>
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+
               {/* Nutrition Awareness Card (India-First Diet Helper) */}
               <NutritionAwarenessCard />
 
@@ -1023,6 +1099,34 @@ const Dashboard = () => {
             </div>
           </div>
         </div>
+
+        {/* Prescription Upload Modal */}
+        <QuickPrescriptionModal
+          isOpen={showPrescriptionModal}
+          onClose={() => setShowPrescriptionModal(false)}
+          babyId={babyId || ''}
+          onSuccess={() => {
+            console.log('🎉 [Dashboard] Prescription added successfully! Refetching medication logs...');
+            // Refetch medication logs after successful prescription confirmation
+            const fetchLogs = async () => {
+              if (!user || !babyId) {
+                console.log('⏭️  [Dashboard] Skipping refetch - user:', !!user, 'babyId:', babyId);
+                return;
+              }
+              try {
+                console.log('🔄 [Dashboard] Refetching medication logs for babyId:', babyId);
+                const logsData = await prescriptionsApi.getMedicationLogs(babyId);
+                console.log('📋 [Dashboard] Refetch response:', logsData);
+                setMedicationLogs(logsData.logs || []);
+                console.log('✅ [Dashboard] Medication logs updated with', (logsData.logs || []).length, 'logs');
+              } catch (error: any) {
+                console.error('❌ [Dashboard] Error refetching medication logs:', error);
+                console.error('Error message:', error.message);
+              }
+            };
+            fetchLogs();
+          }}
+        />
       </main>
     </div>
     </DashboardLayout>
