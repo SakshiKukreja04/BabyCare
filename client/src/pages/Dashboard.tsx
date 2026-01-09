@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { getCareLogsByBaby, getBabiesByParent } from '@/lib/firestore';
 import { alertsApi, babiesApi, prescriptionsApi } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
+import { registerFCMToken, setupFCMListener } from '@/services/fcm';
+import reminderEventEmitter from '@/services/reminderEvents';
 import { Link } from 'react-router-dom';
 import {
   Baby,
@@ -18,6 +20,8 @@ import {
   Pill,
   CheckCircle2,
   Loader2,
+  Settings,
+  Bell,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -28,11 +32,15 @@ import NutritionAwarenessCard from '@/components/dashboard/NutritionAwarenessCar
 import RuleExplanationModal from '@/components/dashboard/RuleExplanationModal';
 import MoodCheckInWidget from '@/components/dashboard/MoodCheckInWidget';
 import QuickPrescriptionModal from '@/components/prescription/QuickPrescriptionModal';
+import RemindersSection from '@/components/dashboard/RemindersSection';
+import NotificationDropdown from '@/components/dashboard/NotificationDropdown';
+import UserSettings from '@/components/UserSettings';
 
 const Dashboard = () => {
   const { t } = useLanguage();
 
   const { user } = useAuth();
+  const [showNotifications, setShowNotifications] = useState(false);
   const [babyData, setBabyData] = useState<any>(null);
   const [recentLogs, setRecentLogs] = useState([]);
   const [alerts, setAlerts] = useState<any[]>([]);
@@ -56,10 +64,41 @@ const Dashboard = () => {
   const [prescriptions, setPrescriptions] = useState<any[]>([]);
   const [medicationLogs, setMedicationLogs] = useState<any[]>([]);
   const [showPrescriptionModal, setShowPrescriptionModal] = useState(false);
+  const [showUserSettings, setShowUserSettings] = useState(false);
+  const [sentRemindersCount, setSentRemindersCount] = useState(0);
+
+  /**
+   * Track sent reminders count
+   * Only count reminders that have been actually sent via notification
+   */
+  useEffect(() => {
+    // Subscribe to reminder sent events to track actual notifications
+    const unsubscribeSent = reminderEventEmitter.subscribe(
+      'reminder:received',
+      () => {
+        // Increment count when a reminder is actually sent
+        setSentRemindersCount(prev => prev + 1);
+        console.log('🔔 [Dashboard] Reminder sent, incrementing count');
+      }
+    );
+
+    return () => {
+      unsubscribeSent();
+    };
+  }, []);
 
   useEffect(() => {
     async function fetchBabyAndLogs() {
       if (!user) return;
+
+      // Initialize FCM token registration (silent)
+      try {
+        await registerFCMToken(user.uid);
+        setupFCMListener();
+      } catch (error) {
+        console.warn('FCM initialization not critical:', error);
+      }
+
       const babies = await getBabiesByParent(user.uid);
       // Debug: verify babies fetched for this parent
       // eslint-disable-next-line no-console
@@ -75,6 +114,7 @@ const Dashboard = () => {
           currentWeight?: number;
         };
         setBabyId(baby.id);
+        
         const logs = (await getCareLogsByBaby(baby.id, user.uid)) as Array<{
           id: string;
           type?: string;
@@ -194,6 +234,9 @@ const Dashboard = () => {
       }
     }
     fetchBabyAndLogs();
+
+    // Cleanup: nothing to clean up
+    return () => {};
   }, [user]);
 
   // Fetch Gemini explainability for development milestones (premature only)
@@ -408,15 +451,54 @@ const Dashboard = () => {
         <main className="pb-12 px-4 pt-8">
           <div className="container mx-auto max-w-6xl">
           {/* Welcome Section */}
-          <div className="mb-8">
-            <div className="flex items-center gap-2 text-primary mb-2">
-              <Heart className="w-5 h-5 animate-pulse-soft" />
-              <span className="text-sm font-medium">{t('dashboard.welcome')} 💙</span>
+          <div className="mb-8 flex items-center justify-between">
+            <div>
+              <div className="flex items-center gap-2 text-primary mb-2">
+                <Heart className="w-5 h-5 animate-pulse-soft" />
+                <span className="text-sm font-medium">{t('dashboard.welcome')} 💙</span>
+              </div>
+              <h1 className="text-2xl md:text-3xl font-bold text-foreground">
+                Welcome back, Parent!
+              </h1>
             </div>
-            <h1 className="text-2xl md:text-3xl font-bold text-foreground">
-              Welcome back, Parent!
-            </h1>
+            <div className="flex items-center gap-2">
+              <div className="relative">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowNotifications(!showNotifications)}
+                  className="gap-2 relative"
+                >
+                  <Bell className="w-4 h-4" />
+                  {sentRemindersCount > 0 && (
+                    <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-semibold">
+                      {sentRemindersCount}
+                    </span>
+                  )}
+                </Button>
+                <NotificationDropdown 
+                  isOpen={showNotifications} 
+                  onClose={() => setShowNotifications(false)}
+                />
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowUserSettings(!showUserSettings)}
+                className="gap-2"
+              >
+                <Settings className="w-4 h-4" />
+                Settings
+              </Button>
+            </div>
           </div>
+
+          {/* User Settings Section */}
+          {showUserSettings && (
+            <div className="mb-8 animate-in fade-in-50 duration-300">
+              <UserSettings />
+            </div>
+          )}
 
           <div className="grid lg:grid-cols-3 gap-6">
             {/* Main Content */}
@@ -791,6 +873,11 @@ const Dashboard = () => {
                     )}
                   </CardContent>
                 </Card>
+              )}
+
+              {/* Medicine Reminders Section */}
+              {babyId && (
+                <RemindersSection babyId={babyId} babyName={babyData?.name || 'Baby'} />
               )}
 
               {/* Care Logs directly below summary card */}

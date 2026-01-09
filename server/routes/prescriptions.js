@@ -3,6 +3,7 @@ const router = express.Router();
 const { db, admin } = require('../firebaseAdmin');
 const { verifyToken } = require('../middleware/auth');
 const { extractPrescriptionData } = require('../services/medgemma');
+const { generateRemindersFor24Hours } = require('../services/reminders');
 
 /**
  * GET /prescriptions/logs
@@ -205,6 +206,7 @@ router.post('/:prescriptionId/confirm', verifyToken, async (req, res) => {
     }
 
     const prescriptionData = prescriptionDoc.data();
+    const babyId = prescriptionData.babyId;
     
     // Verify ownership
     if (prescriptionData.parentId !== parentId) {
@@ -260,12 +262,35 @@ router.post('/:prescriptionId/confirm', verifyToken, async (req, res) => {
 
     console.log('✅ [Prescription Confirm] Prescription confirmed and scheduled in Firestore');
 
+    // Generate reminders for each medicine
+    console.log('🔔 [Prescription Confirm] Generating reminders for medicines...');
+    console.log('   - Baby ID:', babyId);
+    console.log('   - Parent ID:', parentId);
+    
+    try {
+      if (!babyId) {
+        throw new Error('Baby ID is undefined - cannot generate reminders');
+      }
+      if (!parentId) {
+        throw new Error('Parent ID is undefined - cannot generate reminders');
+      }
+      
+      for (const medicine of processedMedicines) {
+        const reminderIds = await generateRemindersFor24Hours(babyId, parentId, medicine);
+        console.log(`✅ [Prescription Confirm] Generated ${reminderIds.length} reminders for ${medicine.medicine_name}`);
+      }
+    } catch (reminderError) {
+      console.error('⚠️  [Prescription Confirm] Error generating reminders:', reminderError.message);
+      // Don't fail the prescription confirmation if reminders fail
+      // Log the error but continue
+    }
+
     res.json({
       success: true,
       data: {
         prescriptionId,
         status: 'confirmed',
-        message: 'Prescription confirmed and scheduled',
+        message: 'Prescription confirmed and scheduled with reminders',
       },
     });
   } catch (error) {
@@ -276,6 +301,25 @@ router.post('/:prescriptionId/confirm', verifyToken, async (req, res) => {
     });
   }
 });
+
+/**
+ * Removed duplicate code from original - reminders already created above
+ */
+async function createRemindersForMedicines(babyId, parentId, medicines) {
+  try {
+    for (const medicine of medicines) {
+      await generateRemindersFor24Hours(babyId, parentId, medicine);
+    }
+  } catch (error) {
+    console.error('❌ [Prescription] Error creating reminders:', error.message);
+    throw error;
+  }
+}
+
+/**
+ * OLD DUPLICATE POST CONFIRM ROUTE - REMOVED
+ * (This was likely causing issues before)
+ */
 
 /**
  * GET /prescriptions?babyId=<id>

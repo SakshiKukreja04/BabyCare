@@ -8,7 +8,7 @@ import { auth } from './firebase';
  * Handles all HTTP requests to the Node.js backend
  */
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 
 /**
  * Get Firebase ID token for authentication
@@ -47,6 +47,9 @@ async function apiRequest<T>(
   const data = await response.json();
   return data.data || data;
 }
+
+// Export apiRequest for use in components
+export { apiRequest };
 
 /**
  * Care Logs API

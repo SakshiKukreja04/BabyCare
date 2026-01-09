@@ -8,15 +8,21 @@ const alertsRoutes = require('./routes/alerts');
 const chatbotRoutes = require('./routes/chatbot');
 const babiesRoutes = require('./routes/babies');
 const prescriptionsRoutes = require('./routes/prescriptions');
+const remindersRoutes = require('./routes/reminders');
+
+// Import background scheduler
+const { initializeScheduler } = require('./services/backgroundScheduler');
 
 // Initialize Express app
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Middleware
+// Middleware - CORS configuration for Windows development
 app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:8080',
+  origin: process.env.CLIENT_URL || 'http://127.0.0.1:5173',
   credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -36,6 +42,7 @@ app.use('/api/alerts', alertsRoutes);
 app.use('/api/chatbot', chatbotRoutes);
 app.use('/api/babies', babiesRoutes);
 app.use('/api/prescriptions', prescriptionsRoutes);
+app.use('/api/reminders', remindersRoutes);
 
 // 404 handler
 app.use((req, res) => {
@@ -54,12 +61,22 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Start server
-app.listen(PORT, () => {
-  console.log(`🚀 BabyCare Backend Server running on port ${PORT}`);
-  console.log(`📡 Health check: http://localhost:${PORT}/health`);
+// Start server - explicitly bind to IPv4 on Windows
+app.listen(PORT, '127.0.0.1', () => {
+  console.log(`🚀 BabyCare Backend Server running on http://127.0.0.1:${PORT}`);
+  console.log(`📡 Health check: http://127.0.0.1:${PORT}/health`);
   console.log(`🔐 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`✅ CORS enabled for: http://127.0.0.1:5173`);
+  
+  // Initialize background scheduler for reminders
+  try {
+    initializeScheduler();
+    console.log(`⏰ Background reminder scheduler initialized`);
+  } catch (error) {
+    console.error('❌ Failed to initialize scheduler:', error.message);
+  }
 });
 
 module.exports = app;
+
 
