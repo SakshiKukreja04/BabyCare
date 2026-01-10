@@ -105,9 +105,18 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         });
     }
 
-    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       setUser(firebaseUser);
       setLoading(false);
+      
+      // 🔑 LOG TOKEN FOR POSTMAN TESTING - Remove in production!
+      if (firebaseUser) {
+        const token = await firebaseUser.getIdToken();
+        console.log("🔑 ====================== BEARER TOKEN ======================");
+        console.log("🔑 Copy this token for Postman:");
+        console.log(token);
+        console.log("🔑 ===========================================================");
+      }
     });
 
     return () => unsubscribe();

@@ -15,6 +15,7 @@ import DailyLog from "./pages/DailyLog";
 import Chatbot from "./pages/Chatbot";
 import Nutrition from "./pages/Nutrition";
 import Analytics from "./pages/Analytics";
+import CryAnalysis from "./pages/CryAnalysis";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -76,6 +77,14 @@ const App = () => (
                 element={
                   <RequireAuth>
                     <Analytics />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/cry-analysis"
+                element={
+                  <RequireAuth>
+                    <CryAnalysis />
                   </RequireAuth>
                 }
               />

@@ -9,17 +9,35 @@ const chatbotRoutes = require('./routes/chatbot');
 const babiesRoutes = require('./routes/babies');
 const prescriptionsRoutes = require('./routes/prescriptions');
 const remindersRoutes = require('./routes/reminders');
+const cryAnalysisRoutes = require('./routes/cryAnalysis');
 
 // Import background scheduler
 const { initializeScheduler } = require('./services/backgroundScheduler');
 
 // Initialize Express app
 const app = express();
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 5001;
 
 // Middleware - CORS configuration for Windows development
+// Allow multiple origins for development (Vite may use different ports)
+const allowedOrigins = [
+  process.env.CLIENT_URL,
+  'http://127.0.0.1:5173',
+  'http://127.0.0.1:5174',
+  'http://localhost:5173',
+  'http://localhost:5174',
+].filter(Boolean);
+
 app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://127.0.0.1:5173',
+  origin: (origin, callback) => {
+    // Allow requests with no origin (mobile apps, Postman, etc.)
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      console.warn(`CORS blocked origin: ${origin}`);
+      callback(null, true); // Allow anyway in development
+    }
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization'],
@@ -43,6 +61,7 @@ app.use('/api/chatbot', chatbotRoutes);
 app.use('/api/babies', babiesRoutes);
 app.use('/api/prescriptions', prescriptionsRoutes);
 app.use('/api/reminders', remindersRoutes);
+app.use('/api/cry-analysis', cryAnalysisRoutes);
 
 // 404 handler
 app.use((req, res) => {

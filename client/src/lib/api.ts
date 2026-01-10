@@ -242,6 +242,46 @@ export const prescriptionsApi = {
 };
 
 /**
+ * Cry Analysis API
+ */
+export const cryAnalysisApi = {
+  /**
+   * Analyze baby cry audio
+   * @param audioFile - WAV or MP3 audio file
+   */
+  async analyze(audioFile: File) {
+    const token = await getAuthToken();
+    
+    const formData = new FormData();
+    formData.append('audio', audioFile);
+
+    const response = await fetch(`${API_BASE_URL}/api/cry-analysis`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        // Note: Don't set Content-Type for FormData - browser sets it with boundary
+      },
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ message: 'Request failed' }));
+      throw new Error(error.message || `HTTP error! status: ${response.status}`);
+    }
+
+    return response.json();
+  },
+
+  /**
+   * Check cry analysis service health
+   */
+  async checkHealth() {
+    const response = await fetch(`${API_BASE_URL}/api/cry-analysis/health`);
+    return response.json();
+  },
+};
+
+/**
  * Health check (no auth required)
  */
 export async function checkHealth() {

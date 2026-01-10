@@ -5,6 +5,7 @@ import {
   UtensilsCrossed,
   BarChart3,
   User,
+  AudioWaveform,
 } from 'lucide-react';
 import {
   Sidebar,
@@ -25,6 +26,11 @@ const navigationItems = [
     title: 'Dashboard',
     icon: LayoutDashboard,
     href: '/dashboard',
+  },
+  {
+    title: 'Cry Analysis',
+    icon: AudioWaveform,
+    href: '/cry-analysis',
   },
   {
     title: 'Chatbot',
