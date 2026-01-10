@@ -74,39 +74,14 @@ const HeroSection = () => {
 
           {/* Illustration */}
           <div className="relative animate-fade-up" style={{ animationDelay: '0.2s' }}>
-            <div className="relative w-full max-w-lg mx-auto">
+            <div className="relative w-full mx-auto">
               {/* Main Card */}
-              <div className="glass-card rounded-3xl p-8 shadow-card">
-                <div className="flex items-center gap-4 mb-6">
-                  <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-healthcare-blue-light to-healthcare-mint flex items-center justify-center text-3xl">
-                    👶
-                  </div>
-                  <div>
-                    <h3 className="font-semibold text-foreground">Baby Arya</h3>
-                    <p className="text-sm text-muted-foreground">3 months old</p>
-                  </div>
-                </div>
-                
-                <div className="grid grid-cols-3 gap-4 mb-6">
-                  <div className="text-center p-3 bg-healthcare-blue-light/50 rounded-xl">
-                    <p className="text-xs text-muted-foreground mb-1">Last Feed</p>
-                    <p className="font-semibold text-foreground">2h ago</p>
-                  </div>
-                  <div className="text-center p-3 bg-healthcare-mint-light/50 rounded-xl">
-                    <p className="text-xs text-muted-foreground mb-1">Sleep</p>
-                    <p className="font-semibold text-foreground">4h</p>
-                  </div>
-                  <div className="text-center p-3 bg-healthcare-peach/50 rounded-xl">
-                    <p className="text-xs text-muted-foreground mb-1">Status</p>
-                    <p className="font-semibold text-alert-success">Good</p>
-                  </div>
-                </div>
-
-                <div className="p-4 bg-alert-success/10 rounded-xl border border-alert-success/20">
-                  <p className="text-sm text-alert-success font-medium">
-                    ✨ Everything looks great! Keep up the wonderful care.
-                  </p>
-                </div>
+              <div className="rounded-3xl shadow-card overflow-hidden">
+                <img 
+                  src="/baby_home.png" 
+                  alt="Baby care" 
+                  className="w-full h-auto object-cover rounded-3xl"
+                />
               </div>
 
               {/* Floating Elements */}
