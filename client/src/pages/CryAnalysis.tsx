@@ -25,6 +25,12 @@ interface CryAnalysisResult {
   score?: number;  // Alternative field name from some ML models
   probabilities?: Record<string, number>;
   recommendations?: string[];
+  // Context-aware adjusted fields
+  raw_ai_scores?: Record<string, number>;
+  adjusted_scores?: Record<string, number>;
+  final_label?: string;
+  explanation?: string[];
+  top_reason?: string;
   [key: string]: any;  // Allow additional fields
 }
 
@@ -33,7 +39,14 @@ interface AnalysisResponse {
   data: CryAnalysisResult;
   meta?: {
     processingTimeMs: number;
+    flaskTimeMs?: number;
     originalFilename: string;
+    contextUsed?: {
+      babyId: string | null;
+      feedingLogsCount: number;
+      sleepLogsCount: number;
+      remindersCount: number;
+    };
   };
 }
 
@@ -214,12 +227,22 @@ export default function CryAnalysis() {
     };
   };
 
-  // Extract probabilities from Flask response (excludes top_reason)
+  // Extract probabilities - prefer adjusted_scores over raw
   const getProbabilities = () => {
     if (!result?.data) return [];
     
     const data = result.data;
-    const excluded = ['top_reason', 'prediction', 'label', 'confidence', 'score', 'recommendations'];
+    
+    // Prefer adjusted_scores if available (context-aware)
+    if (data.adjusted_scores && Object.keys(data.adjusted_scores).length > 0) {
+      return Object.entries(data.adjusted_scores)
+        .map(([cause, probability]) => ({ cause, probability: probability as number }))
+        .sort((a, b) => b.probability - a.probability);
+    }
+    
+    // Fallback to raw scores
+    const excluded = ['top_reason', 'prediction', 'label', 'confidence', 'score', 'recommendations', 
+                      'raw_ai_scores', 'adjusted_scores', 'final_label', 'explanation', 'cry_detected'];
     
     return Object.entries(data)
       .filter(([key, value]) => !excluded.includes(key) && typeof value === 'number')
@@ -227,17 +250,35 @@ export default function CryAnalysis() {
       .sort((a, b) => b.probability - a.probability);
   };
 
-  // Get top reason from Flask response
+  // Get top reason - prefer final_label from context-aware adjustment
   const getTopReason = () => {
     if (!result?.data) return null;
-    return result.data.top_reason || result.data.prediction || result.data.label || null;
+    return result.data.final_label || result.data.top_reason || result.data.prediction || result.data.label || null;
   };
 
-  // Get highest confidence from probabilities
+  // Get highest confidence - prefer context-aware confidence
   const getHighestConfidence = () => {
+    if (!result?.data) return null;
+    
+    // Prefer adjusted confidence
+    if (result.data.confidence !== undefined) {
+      return result.data.confidence;
+    }
+    
     const probs = getProbabilities();
     if (probs.length === 0) return null;
     return probs[0].probability;
+  };
+
+  // Get explanations from context-aware adjustment
+  const getExplanations = () => {
+    if (!result?.data?.explanation) return [];
+    return result.data.explanation;
+  };
+
+  // Check if context was used for adjustment
+  const hasContextAdjustment = () => {
+    return result?.data?.adjusted_scores && result?.data?.explanation && result.data.explanation.length > 0;
   };
 
   return (
@@ -379,11 +420,18 @@ export default function CryAnalysis() {
                       <CheckCircle2 className="h-5 w-5" />
                       Analysis Complete
                     </CardTitle>
-                    {result.meta && (
-                      <Badge variant="outline" className="text-xs">
-                        {(result.meta.processingTimeMs / 1000).toFixed(1)}s
-                      </Badge>
-                    )}
+                    <div className="flex gap-2">
+                      {hasContextAdjustment() && (
+                        <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200">
+                          Context-Aware
+                        </Badge>
+                      )}
+                      {result.meta && (
+                        <Badge variant="outline" className="text-xs">
+                          {(result.meta.processingTimeMs / 1000).toFixed(1)}s
+                        </Badge>
+                      )}
+                    </div>
                   </div>
                 </CardHeader>
                 <CardContent>
@@ -407,19 +455,85 @@ export default function CryAnalysis() {
                       {getCauseInfo(getTopReason() || 'unknown').description}
                     </p>
                   </div>
+
+                  {/* Other Possible Reasons - Horizontal Cards Below */}
+                  {getProbabilities().length > 1 && (
+                    <div className="mt-6 pt-6 border-t">
+                      <p className="text-sm text-muted-foreground text-center mb-4">Other possible reasons</p>
+                      <div className="flex flex-wrap justify-center gap-3">
+                        {getProbabilities()
+                          .filter(({ cause }) => cause.toLowerCase() !== (getTopReason() || '').toLowerCase())
+                          .map(({ cause, probability }) => {
+                            const causeInfo = getCauseInfo(cause);
+                            const percentage = probability * 100;
+                            
+                            return (
+                              <div 
+                                key={cause}
+                                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700"
+                              >
+                                <span className="text-xl">{causeInfo.icon}</span>
+                                <div>
+                                  <p className="text-sm font-medium">{causeInfo.label}</p>
+                                  <p className="text-xs text-muted-foreground">{percentage.toFixed(0)}%</p>
+                                </div>
+                              </div>
+                            );
+                          })
+                        }
+                      </div>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
+
+              {/* Context Explanations Card */}
+              {hasContextAdjustment() && getExplanations().length > 0 && (
+                <Card className="bg-gradient-to-r from-indigo-50 to-blue-50 dark:from-indigo-950 dark:to-blue-950 border-indigo-200">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="flex items-center gap-2 text-indigo-700 dark:text-indigo-300 text-base">
+                      <Baby className="h-4 w-4" />
+                      Why this prediction?
+                    </CardTitle>
+                    <CardDescription>Based on your baby's recent activity</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2">
+                      {getExplanations().map((explanation, index) => (
+                        <div 
+                          key={index}
+                          className="flex items-start gap-2 text-sm text-indigo-800 dark:text-indigo-200"
+                        >
+                          <CheckCircle2 className="h-4 w-4 mt-0.5 text-indigo-500 flex-shrink-0" />
+                          <span>{explanation}</span>
+                        </div>
+                      ))}
+                    </div>
+                    {result.meta?.contextUsed && (
+                      <div className="mt-4 pt-3 border-t border-indigo-200 dark:border-indigo-800">
+                        <p className="text-xs text-indigo-600 dark:text-indigo-400">
+                          Context: {result.meta.contextUsed.feedingLogsCount} feeding logs, {result.meta.contextUsed.sleepLogsCount} sleep logs, {result.meta.contextUsed.remindersCount} reminders
+                        </p>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
 
               {/* Probability Breakdown Cards */}
               {getProbabilities().length > 0 && (
                 <Card>
                   <CardHeader>
-                    <CardTitle className="text-lg">Analysis Breakdown</CardTitle>
-                    <CardDescription>All detected patterns in your baby's cry</CardDescription>
+                    <CardTitle className="text-lg">Detailed Analysis Breakdown</CardTitle>
+                    <CardDescription>
+                      {hasContextAdjustment() 
+                        ? 'Adjusted confidence scores based on recent activity' 
+                        : 'All detected patterns in your baby\'s cry'}
+                    </CardDescription>
                   </CardHeader>
                   <CardContent>
                     <div className="grid gap-4 sm:grid-cols-2">
-                      {getProbabilities().map(({ cause, probability }, index) => {
+                      {getProbabilities().map(({ cause, probability }) => {
                         const causeInfo = getCauseInfo(cause);
                         const percentage = probability * 100;
                         const isTopReason = cause.toLowerCase() === (getTopReason() || '').toLowerCase();
