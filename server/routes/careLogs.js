@@ -2,8 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { db, admin } = require('../firebaseAdmin');
 const { verifyToken } = require('../middleware/auth');
-const { evaluateAllRules } = require('../services/ruleEngine');
-const { sendAlertNotification } = require('../services/fcm');
+const { evaluateAllRules, evaluateBabyStatus } = require('../services/ruleEngine');
 const { sendAlertViaWhatsApp, getUserPhoneNumber } = require('../services/whatsapp');
 
 /**
@@ -13,8 +12,9 @@ const { sendAlertViaWhatsApp, getUserPhoneNumber } = require('../services/whatsa
  * Flow:
  * 1. Verify user via auth middleware
  * 2. Store care log in Firestore
- * 3. If log type === 'feeding', call rule engine
- * 4. Send notifications if alerts are created
+ * 3. Call rule engine for all log types
+ * 4. Send notifications if alerts are created (FCM handled by rule engine)
+ * 5. Return summary status for dashboard
  */
 router.post('/', verifyToken, async (req, res) => {
   try {
@@ -99,28 +99,35 @@ router.post('/', verifyToken, async (req, res) => {
 
     await careLogRef.set(careLogData);
 
-    // Evaluate all applicable rules after creating care log
-    let alerts = [];
+    // Evaluate all applicable rules after creating care log (REAL-TIME EVALUATION)
+    // FCM notifications are now sent automatically by the rule engine:
+    // - HIGH alerts trigger FCM
+    // - ALL care reminders trigger FCM
+    // - MEDIUM/LOW alerts do NOT trigger FCM
+    let ruleResult = { alerts: [], reminders: [] };
     if (type === 'feeding' || type === 'sleep' || type === 'medication') {
-      alerts = await evaluateAllRules(babyId, parentId);
+      ruleResult = await evaluateAllRules(babyId, parentId);
 
-      // Send notifications for new alerts
-      for (const alert of alerts) {
+      // Send WhatsApp notifications for NEW HIGH alerts only
+      const newHighAlerts = (ruleResult.alerts || []).filter(alert => alert.isNew && alert.severity === 'HIGH');
+      for (const alert of newHighAlerts) {
         try {
-          // Send FCM notification
-          await sendAlertNotification(parentId, alert);
-
-          // Send WhatsApp notification if phone number available
           const phoneNumber = await getUserPhoneNumber(parentId);
           if (phoneNumber) {
             await sendAlertViaWhatsApp(phoneNumber, alert);
           }
         } catch (notificationError) {
-          console.error('Error sending notifications:', notificationError);
+          console.error('Error sending WhatsApp notification:', notificationError);
           // Don't fail the request if notifications fail
         }
       }
     }
+
+    // Get current baby status for summary card
+    const summaryStatus = await evaluateBabyStatus(babyId, parentId);
+
+    const alerts = ruleResult.alerts || [];
+    const reminders = ruleResult.reminders || [];
 
     res.status(201).json({
       success: true,
@@ -129,7 +136,17 @@ router.post('/', verifyToken, async (req, res) => {
           ...careLogData,
           timestamp: new Date().toISOString(),
         },
-        alertsCreated: alerts.length,
+        alertsCreated: alerts.filter(a => a.isNew).length,
+        alertsUpdated: alerts.filter(a => !a.isNew).length,
+        remindersCreated: reminders.filter(r => r.isNew).length,
+        remindersUpdated: reminders.filter(r => !r.isNew).length,
+        summaryStatus: {
+          isAllGood: summaryStatus.isAllGood,
+          alertCount: summaryStatus.alertCount,
+          overallSeverity: summaryStatus.overallSeverity,
+          summary: summaryStatus.summary,
+          reasons: summaryStatus.reasons,
+        },
       },
     });
   } catch (error) {

@@ -1,277 +1,238 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
-  Droplet,
-  UtensilsCrossed,
-  Battery,
-  Baby,
-  Clock,
-  CheckCircle2,
-  TrendingUp,
-  Calendar,
+  Leaf,
+  Heart,
+  AlertCircle,
+  Loader2,
+  BarChart3,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Input } from '@/components/ui/input';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
-import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from '@/components/ui/chart';
-import { Bar, BarChart, Line, LineChart, ResponsiveContainer, XAxis, YAxis } from 'recharts';
+import MotherSelfCareLog from '@/components/dashboard/MotherSelfCareLog';
+import NutritionQuiz from '@/components/dashboard/NutritionQuiz';
+import NutritionAnalytics from '@/components/dashboard/NutritionAnalytics';
+import { nutritionMotherApi } from '@/lib/api';
+import { useAuth } from '@/contexts/AuthContext';
 
 const Nutrition = () => {
-  const [waterIntake, setWaterIntake] = useState(false);
-  const [meals, setMeals] = useState({
-    breakfast: false,
-    lunch: false,
-    dinner: false,
-    snacks: false,
-  });
-  const [energyLevel, setEnergyLevel] = useState<string>('');
-  const [feedingCount, setFeedingCount] = useState<string>('');
-  const [feedingType, setFeedingType] = useState<string>('');
-  const [lastFeedingTime, setLastFeedingTime] = useState<string>('');
+  const { user } = useAuth();
+  const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [motherSummary, setMotherSummary] = useState<any>(null);
+  const [activeTab, setActiveTab] = useState('mother');
 
-  // Mock data for charts
-  const feedingFrequencyData = [
-    { day: 'Mon', count: 6 },
-    { day: 'Tue', count: 7 },
-    { day: 'Wed', count: 6 },
-    { day: 'Thu', count: 8 },
-    { day: 'Fri', count: 7 },
-    { day: 'Sat', count: 6 },
-    { day: 'Sun', count: 7 },
-  ];
+  // Load data on mount
+  useEffect(() => {
+    if (!user) return;
+    loadNutritionData();
+  }, [user, refreshTrigger]);
 
-  const hydrationData = [
-    { day: 'Mon', logged: true },
-    { day: 'Tue', logged: true },
-    { day: 'Wed', logged: false },
-    { day: 'Thu', logged: true },
-    { day: 'Fri', logged: true },
-    { day: 'Sat', logged: true },
-    { day: 'Sun', logged: true },
-  ];
-
-  const chartConfig = {
-    count: {
-      label: 'Feedings',
-      color: 'hsl(var(--healthcare-blue))',
-    },
+  const loadNutritionData = async () => {
+    try {
+      if (refreshTrigger > 0) {
+        setIsRefreshing(true);
+      } else {
+        setIsLoading(true);
+      }
+      
+      const response = await nutritionMotherApi.getSummary().catch((err) => {
+        console.error('API Error:', err);
+        return null;
+      });
+      
+      console.log('🔄 Mother nutrition summary response:', response);
+      console.log('🔄 Response thisWeek:', response?.thisWeek);
+      
+      if (response && response.thisWeek) {
+        console.log('✅ Setting mother summary:', response);
+        setMotherSummary(response);
+      } else {
+        console.warn('⚠️ No thisWeek data in response:', response);
+        setMotherSummary(null);
+      }
+    } catch (error) {
+      console.error('❌ Error loading nutrition data:', error);
+    } finally {
+      setIsLoading(false);
+      setIsRefreshing(false);
+    }
   };
 
-  const handleMealChange = (meal: keyof typeof meals) => {
-    setMeals((prev) => ({ ...prev, [meal]: !prev[meal] }));
-  };
+  if (isLoading) {
+    return (
+      <DashboardLayout>
+        <div className="min-h-screen bg-background">
+          <div className="container mx-auto max-w-6xl px-4 py-8">
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="w-8 h-8 animate-spin text-primary" />
+              <span className="ml-3 text-lg text-muted-foreground">Loading nutrition data...</span>
+            </div>
+          </div>
+        </div>
+      </DashboardLayout>
+    );
+  }
 
   return (
     <DashboardLayout>
       <div className="min-h-screen bg-background">
-        <div className="container mx-auto max-w-6xl px-4 py-8">
+        <div className="container mx-auto max-w-7xl px-4 py-8">
+          {/* Header */}
           <div className="mb-8">
-            <h1 className="text-3xl font-bold text-foreground mb-2">Nutrition Awareness</h1>
+            <h1 className="text-3xl font-bold text-foreground mb-2 flex items-center gap-2">
+              <Leaf className="w-8 h-8 text-healthcare-mint" />
+              Mother Nutrition & Self-Care Tracker
+            </h1>
             <p className="text-muted-foreground">
-              Track self-care and baby nutrition habits (for awareness only, not medical advice)
+              Track mother's self-care, nutrition awareness, and daily wellness habits for awareness purposes only
             </p>
           </div>
 
-          <div className="grid lg:grid-cols-2 gap-6">
-            {/* Mother Self-Care Logs */}
-            <Card className="shadow-card">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <UtensilsCrossed className="w-5 h-5 text-healthcare-peach-dark" />
-                  Mother Self-Care Logs
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                {/* Water Intake */}
-                <div className="space-y-3">
-                  <Label className="flex items-center gap-2 text-base font-medium">
-                    <Droplet className="w-5 h-5 text-primary" />
-                    Water Intake Today
-                  </Label>
-                  <div className="flex items-center gap-2">
-                    <Checkbox
-                      id="water"
-                      checked={waterIntake}
-                      onCheckedChange={(checked) => setWaterIntake(checked === true)}
-                    />
-                    <Label htmlFor="water" className="cursor-pointer">
-                      Adequate water intake logged
-                    </Label>
-                  </div>
-                </div>
+          {/* Main Tabs */}
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+            <TabsList className="grid w-full grid-cols-3">
+              <TabsTrigger value="mother" className="flex items-center gap-2">
+                <Heart className="w-4 h-4" />
+                Mother Care
+              </TabsTrigger>
+              <TabsTrigger value="quiz" className="flex items-center gap-2">
+                <Leaf className="w-4 h-4" />
+                Daily Quiz
+              </TabsTrigger>
+              <TabsTrigger value="analytics" className="flex items-center gap-2">
+                <BarChart3 className="w-4 h-4" />
+                Nutrition Analytics
+              </TabsTrigger>
+            </TabsList>
 
-                {/* Meals */}
-                <div className="space-y-3">
-                  <Label className="flex items-center gap-2 text-base font-medium">
-                    <UtensilsCrossed className="w-5 h-5 text-healthcare-peach-dark" />
-                    Meals Taken Today
-                  </Label>
-                  <div className="space-y-2">
-                    {(['breakfast', 'lunch', 'dinner', 'snacks'] as const).map((meal) => (
-                      <div key={meal} className="flex items-center gap-2">
-                        <Checkbox
-                          id={meal}
-                          checked={meals[meal]}
-                          onCheckedChange={() => handleMealChange(meal)}
-                        />
-                        <Label htmlFor={meal} className="cursor-pointer capitalize">
-                          {meal}
-                        </Label>
+            {/* Mother Care Tab */}
+            <TabsContent value="mother" className="space-y-6">
+              {/* Self-Care Log Component */}
+              <MotherSelfCareLog onLogSaved={(summary) => {
+                console.log('📝 Self-care saved, received summary:', summary);
+                if (summary) {
+                  console.log('✅ Immediately setting summary from POST response');
+                  setMotherSummary(summary);
+                  // Auto-switch to quiz tab after save
+                  setTimeout(() => setActiveTab('quiz'), 1000);
+                } else {
+                  console.log('⚠️ No summary received, fetching via GET');
+                  setRefreshTrigger(prev => prev + 1);
+                }
+              }} />
+
+              {/* Helpful Message */}
+              <Card className="bg-blue-50 border-blue-200">
+                <CardContent className="pt-6">
+                  <div className="flex gap-3">
+                    <AlertCircle className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <h3 className="font-medium text-blue-900 mb-1">Next Steps</h3>
+                      <p className="text-sm text-blue-800">
+                        After logging your self-care, take the Daily Quiz tab to complete your nutrition awareness tracking.
+                        View all your analytics in the Nutrition Analytics tab.
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            {/* Nutrition Quiz Tab */}
+            <TabsContent value="quiz" className="space-y-6">
+              <NutritionQuiz onQuizComplete={() => {
+                console.log('📊 Quiz completed, refreshing data...');
+                setRefreshTrigger(prev => prev + 1);
+                // Auto-switch to analytics tab after quiz
+                setTimeout(() => setActiveTab('analytics'), 1000);
+              }} />
+
+              {/* Helpful Message */}
+              <Card className="bg-green-50 border-green-200">
+                <CardContent className="pt-6">
+                  <div className="flex gap-3">
+                    <AlertCircle className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <h3 className="font-medium text-green-900 mb-1">View Your Results</h3>
+                      <p className="text-sm text-green-800">
+                        After completing the quiz, head to the Nutrition Analytics tab to see your comprehensive tracking data,
+                        charts, and insights.
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            {/* Nutrition Analytics Tab */}
+            <TabsContent value="analytics" className="space-y-6">
+              {(() => {
+                console.log('🔍 Analytics tab - motherSummary:', motherSummary);
+                console.log('🔍 motherSummary.thisWeek:', motherSummary?.thisWeek);
+                return null;
+              })()}
+              
+              {isRefreshing && (
+                <Card className="bg-yellow-50 border-yellow-200">
+                  <CardContent className="pt-6">
+                    <div className="flex gap-3 items-center">
+                      <Loader2 className="w-5 h-5 text-yellow-600 animate-spin" />
+                      <p className="text-sm text-yellow-800">Refreshing analytics data...</p>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+              
+              {motherSummary ? (
+                <>
+                  <Card className="bg-green-50 border-green-200">
+                    <CardContent className="pt-6">
+                      <div className="flex gap-3">
+                        <AlertCircle className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
+                        <div>
+                          <h3 className="font-medium text-green-900 mb-1">Your Analytics Are Ready!</h3>
+                          <p className="text-sm text-green-800">
+                            View your comprehensive nutrition tracking data and insights below.
+                          </p>
+                        </div>
                       </div>
-                    ))}
-                  </div>
-                </div>
+                    </CardContent>
+                  </Card>
+                  <NutritionAnalytics motherSummary={motherSummary} />
+                </>
+              ) : (
+                <Card className="bg-blue-50 border-blue-200">
+                  <CardContent className="pt-6">
+                    <div className="flex gap-3">
+                      <AlertCircle className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                      <div>
+                        <h3 className="font-medium text-blue-900 mb-1">No Data Yet</h3>
+                        <p className="text-sm text-blue-800">
+                          Complete the Mother Care log and Daily Quiz to see your nutrition analytics and tracking data here.
+                        </p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </TabsContent>
+          </Tabs>
 
-                {/* Energy Level */}
-                <div className="space-y-3">
-                  <Label className="flex items-center gap-2 text-base font-medium">
-                    <Battery className="w-5 h-5 text-healthcare-mint" />
-                    Energy Level
-                  </Label>
-                  <Select value={energyLevel} onValueChange={setEnergyLevel}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select energy level" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="low">Low</SelectItem>
-                      <SelectItem value="medium">Medium</SelectItem>
-                      <SelectItem value="good">Good</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <Button className="w-full" size="lg">
-                  Save Self-Care Log
-                </Button>
-              </CardContent>
-            </Card>
-
-            {/* Baby Daily Eating Habits */}
-            <Card className="shadow-card">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Baby className="w-5 h-5 text-primary" />
-                  Baby Daily Eating Habits
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                {/* Feeding Count */}
-                <div className="space-y-3">
-                  <Label htmlFor="feedingCount" className="text-base font-medium">
-                    Feeding Count Today
-                  </Label>
-                  <Input
-                    id="feedingCount"
-                    type="number"
-                    placeholder="Enter number of feedings"
-                    value={feedingCount}
-                    onChange={(e) => setFeedingCount(e.target.value)}
-                  />
-                </div>
-
-                {/* Feeding Type */}
-                <div className="space-y-3">
-                  <Label className="text-base font-medium">Feeding Type</Label>
-                  <Select value={feedingType} onValueChange={setFeedingType}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select feeding type" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="breast">Breast</SelectItem>
-                      <SelectItem value="formula">Formula</SelectItem>
-                      <SelectItem value="mixed">Mixed</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {/* Last Feeding Time */}
-                <div className="space-y-3">
-                  <Label htmlFor="lastFeeding" className="flex items-center gap-2 text-base font-medium">
-                    <Clock className="w-5 h-5 text-muted-foreground" />
-                    Last Feeding Time
-                  </Label>
-                  <Input
-                    id="lastFeeding"
-                    type="time"
-                    value={lastFeedingTime}
-                    onChange={(e) => setLastFeedingTime(e.target.value)}
-                  />
-                </div>
-
-                <Button className="w-full" size="lg">
-                  Save Baby Feeding Log
-                </Button>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Nutrition Awareness Summary */}
-          <Card className="mt-6 shadow-card">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <TrendingUp className="w-5 h-5 text-healthcare-mint" />
-                Nutrition Awareness Summary
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid md:grid-cols-2 gap-6 mb-6">
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <CheckCircle2 className="w-4 h-4 text-alert-success" />
-                    <span>Consistent feeding logged</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <CheckCircle2 className="w-4 h-4 text-alert-success" />
-                    <span>Hydration reminders helpful</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <CheckCircle2 className="w-4 h-4 text-alert-success" />
-                    <span>Regular meal patterns observed</span>
-                  </div>
-                </div>
-                <div className="p-4 bg-healthcare-mint-light/30 rounded-xl">
-                  <p className="text-sm text-muted-foreground">
-                    <strong>Note:</strong> This summary is for awareness purposes only. It does not provide medical advice, calorie counts, or nutritional prescriptions. Always consult with healthcare professionals for medical concerns.
+          {/* Disclaimer */}
+          <Card className="mt-8 bg-blue-50 border-blue-200">
+            <CardContent className="pt-6">
+              <div className="flex gap-3">
+                <AlertCircle className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                <div>
+                  <h3 className="font-medium text-blue-900 mb-1">For Awareness Only</h3>
+                  <p className="text-sm text-blue-800">
+                    This nutrition tracker is designed for awareness purposes only. It does not provide medical
+                    advice, calorie counts, or nutritional prescriptions. Always consult with healthcare
+                    professionals for medical concerns or personalized nutrition guidance.
                   </p>
                 </div>
-              </div>
-
-              {/* Charts */}
-              <div className="grid md:grid-cols-2 gap-6">
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-lg">Feeding Frequency (This Week)</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <ChartContainer config={chartConfig} className="h-[200px]">
-                      <BarChart data={feedingFrequencyData}>
-                        <XAxis dataKey="day" />
-                        <YAxis />
-                        <ChartTooltip content={<ChartTooltipContent />} />
-                        <Bar dataKey="count" fill="var(--color-count)" radius={[8, 8, 0, 0]} />
-                      </BarChart>
-                    </ChartContainer>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-lg">Hydration Consistency (This Week)</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <ChartContainer config={chartConfig} className="h-[200px]">
-                      <BarChart data={hydrationData.map((d) => ({ ...d, logged: d.logged ? 1 : 0 }))}>
-                        <XAxis dataKey="day" />
-                        <YAxis domain={[0, 1]} />
-                        <ChartTooltip content={<ChartTooltipContent />} />
-                        <Bar dataKey="logged" fill="var(--color-count)" radius={[8, 8, 0, 0]} />
-                      </BarChart>
-                    </ChartContainer>
-                  </CardContent>
-                </Card>
               </div>
             </CardContent>
           </Card>
@@ -280,6 +241,5 @@ const Nutrition = () => {
     </DashboardLayout>
   );
 };
-
 export default Nutrition;
 

@@ -108,6 +108,7 @@ export async function registerFCMToken(userId: string): Promise<string | null> {
 
 /**
  * Listen for incoming push notifications
+ * Handles different notification types: feeding, sleep, medicine
  */
 export function setupFCMListener(): void {
   try {
@@ -125,16 +126,40 @@ export function setupFCMListener(): void {
       const { notification, data } = payload;
 
       if (notification) {
-        // Show notification to user
-        new Notification(notification.title || 'BabyCare Reminder', {
+        // Show browser notification
+        new Notification(notification.title || 'BabyCare Notification', {
           body: notification.body,
           icon: '/icon-192x192.png',
           badge: '/badge-72x72.png',
-          tag: data?.reminderId || 'babycare-notification',
+          tag: data?.alertId || data?.reminderId || 'babycare-notification',
           data: data,
         });
 
-        // Emit event for frontend to react to
+        // Parse metadata if it's a string
+        let metadata = {};
+        try {
+          metadata = data?.metadata ? JSON.parse(data.metadata) : {};
+        } catch (e) {
+          metadata = data?.metadata || {};
+        }
+
+        // Emit event for frontend to react to based on type
+        const eventData = {
+          id: data?.alertId || data?.reminderId || Date.now().toString(),
+          type: data?.type || 'alert', // 'alert' or 'reminder'
+          alertType: data?.alertType || data?.reminderType || 'feeding', // 'feeding', 'sleep', 'medicine'
+          babyId: data?.babyId,
+          severity: data?.severity,
+          title: notification.title,
+          message: notification.body,
+          metadata: metadata,
+          timestamp: new Date(),
+        };
+
+        // Emit unified notification event
+        reminderEventEmitter.emit('notification:received', eventData);
+        
+        // Also emit legacy reminder event for backward compatibility
         if (data?.reminderId) {
           reminderEventEmitter.emit('reminder:received', {
             reminderId: data.reminderId,
@@ -143,9 +168,9 @@ export function setupFCMListener(): void {
             message: notification.body,
             timestamp: new Date(),
           });
-          
-          console.log('🔔 [FCM] Reminder event emitted for UI update');
         }
+        
+        console.log('🔔 [FCM] Notification event emitted:', eventData.alertType);
       }
     });
 

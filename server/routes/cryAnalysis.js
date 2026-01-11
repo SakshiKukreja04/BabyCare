@@ -60,7 +60,7 @@ const upload = multer({
 });
 
 // Flask service configuration
-const FLASK_CRY_ANALYSIS_URL = process.env.FLASK_CRY_ANALYSIS_URL || 'http://127.0.0.1:5000/analyze-cry';
+const FLASK_CRY_ANALYSIS_URL = process.env.FLASK_CRY_ANALYSIS_URL || 'https://pranjal2510-baby-cry-ai.hf.space/analyze-cry';
 const FLASK_TIMEOUT_MS = parseInt(process.env.FLASK_TIMEOUT_MS, 10) || 30000; // 30 seconds default
 
 // Context window for fetching recent activity (6 hours)

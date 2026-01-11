@@ -65,25 +65,34 @@ const Dashboard = () => {
   const [medicationLogs, setMedicationLogs] = useState<any[]>([]);
   const [showPrescriptionModal, setShowPrescriptionModal] = useState(false);
   const [showUserSettings, setShowUserSettings] = useState(false);
-  const [sentRemindersCount, setSentRemindersCount] = useState(0);
+  const [notificationCount, setNotificationCount] = useState(0);
 
   /**
-   * Track sent reminders count
-   * Only count reminders that have been actually sent via notification
+   * Track notifications count (HIGH alerts + reminders)
+   * Listens to both legacy reminder events and new notification events
    */
   useEffect(() => {
-    // Subscribe to reminder sent events to track actual notifications
-    const unsubscribeSent = reminderEventEmitter.subscribe(
+    // Subscribe to legacy reminder events
+    const unsubscribeReminder = reminderEventEmitter.subscribe(
       'reminder:received',
       () => {
-        // Increment count when a reminder is actually sent
-        setSentRemindersCount(prev => prev + 1);
-        console.log('🔔 [Dashboard] Reminder sent, incrementing count');
+        setNotificationCount(prev => prev + 1);
+        console.log('🔔 [Dashboard] Reminder received, incrementing count');
+      }
+    );
+
+    // Subscribe to new unified notification events
+    const unsubscribeNotification = reminderEventEmitter.subscribe(
+      'notification:received',
+      (data) => {
+        setNotificationCount(prev => prev + 1);
+        console.log('🔔 [Dashboard] Notification received:', data.alertType);
       }
     );
 
     return () => {
-      unsubscribeSent();
+      unsubscribeReminder();
+      unsubscribeNotification();
     };
   }, []);
 
@@ -166,7 +175,7 @@ const Dashboard = () => {
           lastFeed: lastFeedLog && lastFeedLog.timestamp ? timeAgo(lastFeedLog.timestamp) : '',
           lastSleep: lastSleepLog && lastSleepLog.timestamp ? timeAgo(lastSleepLog.timestamp) : '',
           lastMedication: lastMedicationLog ? (lastMedicationLog.medicationGiven ? 'Given' : 'Not Given') : '',
-          status: 'good',
+          status: 'good', // Will be updated after fetching status
           weight: (baby.currentWeight !== undefined ? baby.currentWeight : '') + ' kg',
         });
 
@@ -205,23 +214,108 @@ const Dashboard = () => {
           console.error('Error fetching age summary:', error);
         }
 
-        // Fetch alerts for this baby (HIGH and MEDIUM severity)
+        // Refresh alerts first to update any stale alert messages
         try {
-          const alertsData = await alertsApi.getByBaby(baby.id, false);
-          const allAlerts = alertsData.alerts || [];
+          await babiesApi.refreshAlerts(baby.id);
+          console.log('✅ [Dashboard] Alerts refreshed successfully');
+        } catch (error) {
+          console.warn('⚠️ [Dashboard] Could not refresh alerts:', error);
+          // Not critical - continue with fetching status
+        }
+
+        // Fetch baby status from rule engine for summary card
+        try {
+          const statusData = await babiesApi.getStatus(baby.id);
+          // Update babyData with actual status based on alerts
+          setBabyData(prev => prev ? {
+            ...prev,
+            status: statusData.isAllGood ? 'good' : statusData.overallSeverity,
+            statusSummary: statusData.summary,
+            alertCount: statusData.alertCount,
+          } : prev);
+          
+          // Use status data for alerts (more accurate with triggerData messages)
+          const allAlerts = statusData.activeAlerts || [];
           
           // Separate alerts (HIGH/MEDIUM) from reminders (LOW)
           const highMediumAlerts = allAlerts.filter((a: any) => 
-            !a.resolved && (a.severity === 'HIGH' || a.severity === 'MEDIUM')
+            a.severity === 'HIGH' || a.severity === 'MEDIUM' || 
+            a.severity === 'high' || a.severity === 'medium'
           );
           const lowReminders = allAlerts.filter((a: any) => 
-            !a.resolved && a.severity === 'LOW'
+            a.severity === 'LOW' || a.severity === 'low'
           );
           
           setAlerts(highMediumAlerts);
           setReminders(lowReminders);
+          
+          // Emit notifications for HIGH alerts to show in bell icon
+          const highAlerts = highMediumAlerts.filter((a: any) => 
+            a.severity === 'HIGH' || a.severity === 'high'
+          );
+          highAlerts.forEach((alert: any) => {
+            reminderEventEmitter.emit('notification:received', {
+              id: alert.id,
+              type: 'alert',
+              alertType: alert.type || 'feeding',
+              severity: 'HIGH',
+              title: alert.title,
+              message: alert.message || alert.description,
+              metadata: alert.triggerData || {},
+              timestamp: new Date(alert.updatedAt || alert.createdAt || new Date()),
+            });
+          });
+          
+          // Update notification count based on HIGH alerts
+          setNotificationCount(highAlerts.length);
+          
         } catch (error) {
-          console.error('Error fetching alerts:', error);
+          console.error('Error fetching baby status:', error);
+          
+          // Fallback: Fetch alerts directly
+          try {
+            const alertsData = await alertsApi.getByBaby(baby.id, false);
+            const allAlerts = alertsData.alerts || [];
+            
+            // Separate alerts (HIGH/MEDIUM) from reminders (LOW)
+            const highMediumAlerts = allAlerts.filter((a: any) => 
+              !a.resolved && (a.severity === 'HIGH' || a.severity === 'MEDIUM' ||
+                              a.severity === 'high' || a.severity === 'medium')
+            );
+            const lowReminders = allAlerts.filter((a: any) => 
+              !a.resolved && (a.severity === 'LOW' || a.severity === 'low')
+            );
+            
+            setAlerts(highMediumAlerts);
+            setReminders(lowReminders);
+            
+            // Emit notifications for HIGH alerts
+            const highAlerts = highMediumAlerts.filter((a: any) => 
+              a.severity === 'HIGH' || a.severity === 'high'
+            );
+            highAlerts.forEach((alert: any) => {
+              reminderEventEmitter.emit('notification:received', {
+                id: alert.id,
+                type: 'alert',
+                alertType: alert.type || 'feeding',
+                severity: 'HIGH',
+                title: alert.title,
+                message: alert.message || alert.description,
+                metadata: alert.triggerData || {},
+                timestamp: new Date(alert.updatedAt || alert.createdAt || new Date()),
+              });
+            });
+            setNotificationCount(highAlerts.length);
+            
+            // Update status based on alerts count
+            setBabyData(prev => prev ? {
+              ...prev,
+              status: highMediumAlerts.length === 0 ? 'good' : 'attention',
+              alertCount: highMediumAlerts.length,
+            } : prev);
+          } catch (alertError) {
+            console.error('Error fetching alerts:', alertError);
+          }
         }
 
         // Fetch prescriptions for this baby
@@ -403,15 +497,39 @@ const Dashboard = () => {
   }
 
   const getStatusColor = (status: string) => {
-    switch (status) {
+    const statusLower = status?.toLowerCase() || '';
+    switch (statusLower) {
       case 'good':
+      case 'none':
         return 'bg-alert-success';
+      case 'low':
       case 'attention':
+        return 'bg-alert-low';
+      case 'medium':
         return 'bg-alert-medium';
+      case 'high':
       case 'urgent':
         return 'bg-alert-high';
       default:
         return 'bg-muted';
+    }
+  };
+
+  const getStatusText = (status: string, alertCount?: number) => {
+    const statusLower = status?.toLowerCase() || '';
+    switch (statusLower) {
+      case 'good':
+      case 'none':
+        return 'All Good';
+      case 'low':
+        return alertCount ? `${alertCount} reminder${alertCount > 1 ? 's' : ''}` : 'Reminders';
+      case 'medium':
+        return alertCount ? `${alertCount} alert${alertCount > 1 ? 's' : ''}` : 'Needs Attention';
+      case 'high':
+      case 'urgent':
+        return alertCount ? `${alertCount} urgent` : 'Urgent';
+      default:
+        return status;
     }
   };
 
@@ -470,9 +588,9 @@ const Dashboard = () => {
                   className="gap-2 relative"
                 >
                   <Bell className="w-4 h-4" />
-                  {sentRemindersCount > 0 && (
+                  {notificationCount > 0 && (
                     <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-semibold">
-                      {sentRemindersCount}
+                      {notificationCount}
                     </span>
                   )}
                 </Button>
@@ -541,7 +659,7 @@ const Dashboard = () => {
                       <div className="flex items-center gap-2">
                         <span className={`w-3 h-3 rounded-full ${getStatusColor(babyData.status)} animate-pulse`} />
                         <span className="text-sm font-medium text-foreground capitalize">
-                          {babyData.status === 'good' ? 'All Good' : babyData.status}
+                          {getStatusText(babyData.status, babyData.alertCount)}
                         </span>
                       </div>
                     </div>
@@ -973,6 +1091,13 @@ const Dashboard = () => {
                                   {reminder.triggerData.message}
                                 </p>
                               )}
+                              {/* Timestamp: Last updated */}
+                              {reminder.updatedAt && (
+                                <p className="text-xs text-muted-foreground/70 mt-2 flex items-center gap-1">
+                                  <Clock className="w-3 h-3" />
+                                  Updated: {formatTimestamp(reminder.updatedAt)}
+                                </p>
+                              )}
                             </div>
                             <RuleExplanationModal alert={reminder} />
                           </div>
@@ -1011,17 +1136,26 @@ const Dashboard = () => {
                           className={`group p-4 rounded-2xl border ${styles.border} ${styles.bg} cursor-pointer`}
                         >
                           <summary className="flex items-center justify-between list-none">
-                            <div className="flex items-center gap-3">
-                              <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${styles.badge}`}>
-                                {alert.severity}
-                              </span>
-                              <span className="font-medium text-foreground">{alert.title}</span>
+                            <div className="flex-1">
+                              <div className="flex items-center gap-3">
+                                <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${styles.badge}`}>
+                                  {alert.severity}
+                                </span>
+                                <span className="font-medium text-foreground">{alert.title}</span>
+                              </div>
+                              {/* Description visible on main card */}
+                              <p className="text-sm text-muted-foreground mt-2">{alert.description}</p>
+                              {/* Timestamp visible on main card */}
+                              {alert.updatedAt && (
+                                <p className="text-xs text-muted-foreground/70 mt-2 flex items-center gap-1">
+                                  <Clock className="w-3 h-3" />
+                                  Updated: {formatTimestamp(alert.updatedAt)}
+                                </p>
+                              )}
                             </div>
                             <ChevronRight className="w-5 h-5 text-muted-foreground group-open:rotate-90 transition-transform" />
                           </summary>
                           <div className="mt-4 pt-4 border-t border-border/50 space-y-3">
-                            <p className="text-sm text-muted-foreground">{alert.description}</p>
-                            
                             {/* Show triggerData if available */}
                             {alert.triggerData && alert.triggerData.message && (
                               <div className="p-3 bg-secondary/50 rounded-xl">
@@ -1127,7 +1261,7 @@ const Dashboard = () => {
               </Card>
 
               {/* Nutrition Awareness Card (India-First Diet Helper) */}
-              <NutritionAwarenessCard />
+              <NutritionAwarenessCard babyId={babyId || undefined} />
 
               {/* Emergency Support */}
               <Card className="border-2 border-destructive/30 bg-destructive/5">

@@ -10,6 +10,8 @@ const babiesRoutes = require('./routes/babies');
 const prescriptionsRoutes = require('./routes/prescriptions');
 const remindersRoutes = require('./routes/reminders');
 const cryAnalysisRoutes = require('./routes/cryAnalysis');
+const notificationsRoutes = require('./routes/notifications');
+const nutritionRoutes = require('./routes/nutrition');
 
 // Import background scheduler
 const { initializeScheduler } = require('./services/backgroundScheduler');
@@ -62,6 +64,8 @@ app.use('/api/babies', babiesRoutes);
 app.use('/api/prescriptions', prescriptionsRoutes);
 app.use('/api/reminders', remindersRoutes);
 app.use('/api/cry-analysis', cryAnalysisRoutes);
+app.use('/api/notifications', notificationsRoutes);
+app.use('/api/nutrition', nutritionRoutes);
 
 // 404 handler
 app.use((req, res) => {

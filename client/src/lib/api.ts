@@ -170,6 +170,50 @@ export const babiesApi = {
       content: string | null;
     }>(`/api/babies/${babyId}/development-this-week`);
   },
+
+  /**
+   * Get baby status for dashboard summary card (All Good / Alerts)
+   */
+  async getStatus(babyId: string) {
+    return apiRequest<{
+      babyId: string;
+      babyName: string;
+      isAllGood: boolean;
+      alertCount: number;
+      overallSeverity: 'none' | 'low' | 'medium' | 'high';
+      summary: string;
+      reasons: string[];
+      activeAlerts: Array<{
+        id: string;
+        ruleId: string;
+        severity: string;
+        title: string;
+        description: string;
+        message?: string;
+        createdAt: string;
+      }>;
+    }>(`/api/babies/${babyId}/status`);
+  },
+
+  /**
+   * Refresh alerts by re-evaluating all rules
+   * This updates alert messages with latest data
+   */
+  async refreshAlerts(babyId: string) {
+    return apiRequest<{
+      alertsEvaluated: number;
+      newAlerts: number;
+      updatedAlerts: number;
+      status: {
+        isAllGood: boolean;
+        alertCount: number;
+        overallSeverity: string;
+        summary: string;
+      };
+    }>(`/api/babies/${babyId}/refresh-alerts`, {
+      method: 'POST',
+    });
+  },
 };
 
 /**
@@ -250,17 +294,12 @@ export const cryAnalysisApi = {
    * @param audioFile - WAV or MP3 audio file
    */
   async analyze(audioFile: File) {
-    const token = await getAuthToken();
-    
     const formData = new FormData();
     formData.append('audio', audioFile);
 
-    const response = await fetch(`${API_BASE_URL}/api/cry-analysis`, {
+    const response = await fetch('https://pranjal2510-baby-cry-ai.hf.space/analyze-cry', {
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        // Note: Don't set Content-Type for FormData - browser sets it with boundary
-      },
+      // Note: Don't set Content-Type for FormData - browser sets it with boundary
       body: formData,
     });
 
@@ -276,7 +315,7 @@ export const cryAnalysisApi = {
    * Check cry analysis service health
    */
   async checkHealth() {
-    const response = await fetch(`${API_BASE_URL}/api/cry-analysis/health`);
+    const response = await fetch('https://pranjal2510-baby-cry-ai.hf.space/health');
     return response.json();
   },
 };
@@ -288,4 +327,238 @@ export async function checkHealth() {
   const response = await fetch(`${API_BASE_URL}/health`);
   return response.json();
 }
+
+// ============================================
+// NUTRITION AWARENESS API
+// ============================================
+
+/**
+ * Nutrition API - Baby Feeding
+ */
+export const nutritionBabyApi = {
+  /**
+   * Get complete baby feeding summary
+   */
+  async getSummary(babyId: string) {
+    return apiRequest<{
+      today: {
+        suggestedFeedingCount: number;
+        logs: any[];
+      };
+      thisWeek: {
+        feedingFrequencyChart: Array<{ day: string; count: number }>;
+        feedingTypeDistribution: {
+          breast: { count: number; percentage: number };
+          formula: { count: number; percentage: number };
+          mixed: { count: number; percentage: number };
+          total: number;
+        };
+        consistencyIndicator: {
+          status: 'consistent' | 'irregular' | 'insufficient_data';
+          variance: number | null;
+          averageFeedings: number;
+          daysTracked: number;
+          message: string;
+        };
+      };
+      positiveIndicators: string[];
+      disclaimer: string;
+    }>(`/api/nutrition/baby/summary?babyId=${babyId}`);
+  },
+
+  /**
+   * Get suggested feeding count for today
+   */
+  async getSuggestedCount(babyId: string) {
+    return apiRequest<{
+      suggestedFeedingCount: number;
+      message: string;
+    }>(`/api/nutrition/baby/suggested-count?babyId=${babyId}`);
+  },
+
+  /**
+   * Log a baby feeding
+   */
+  async logFeeding(babyId: string, feedingType: 'breast' | 'formula' | 'mixed', feedingTime?: Date, feedingCount?: number) {
+    return apiRequest<{
+      log: any;
+      summary: any;
+      message: string;
+    }>('/api/nutrition/baby/log', {
+      method: 'POST',
+      body: JSON.stringify({ babyId, feedingType, feedingTime, feedingCount }),
+    });
+  },
+
+  /**
+   * Get weekly feeding frequency chart data
+   */
+  async getWeeklyChart(babyId: string) {
+    return apiRequest<{
+      chartData: Array<{ day: string; count: number }>;
+      chartType: string;
+      xAxis: string;
+      yAxis: string;
+    }>(`/api/nutrition/baby/chart/weekly-frequency?babyId=${babyId}`);
+  },
+
+  /**
+   * Get feeding consistency indicator
+   */
+  async getConsistency(babyId: string) {
+    return apiRequest<{
+      status: 'consistent' | 'irregular' | 'insufficient_data';
+      variance: number | null;
+      averageFeedings: number;
+      daysTracked: number;
+      message: string;
+    }>(`/api/nutrition/baby/consistency?babyId=${babyId}`);
+  },
+};
+
+/**
+ * Nutrition API - Mother Self-Care & Quiz
+ */
+export const nutritionMotherApi = {
+  /**
+   * Get complete mother nutrition summary
+   */
+  async getSummary() {
+    return apiRequest<{
+      today: {
+        selfCare: any;
+        quiz: any;
+        isComplete: boolean;
+      };
+      thisWeek: {
+        selfCareStats: {
+          daysTracked: number;
+          completeDays: number;
+          waterDays: number;
+          mealDays: number;
+          completionRate: number;
+        };
+        nutritionScoreChart: Array<{ day: string; date: string; score: number | null }>;
+      };
+      thisMonth: {
+        averageScore: number | null;
+        daysTracked: number;
+        trend: 'improving' | 'stable' | 'declining';
+        lastMonthAverage: number | null;
+      };
+      positiveIndicators: string[];
+      quizQuestions: any[];
+      disclaimer: string;
+    }>('/api/nutrition/mother/summary');
+  },
+
+  /**
+   * Log daily self-care
+   */
+  async logSelfCare(data: {
+    waterIntake: boolean;
+    mealsTaken: {
+      breakfast: boolean;
+      lunch: boolean;
+      dinner: boolean;
+      snacks: boolean;
+    };
+    energyLevel: 'low' | 'medium' | 'high';
+  }) {
+    return apiRequest<{
+      log: any;
+      summary: any;
+      message: string;
+    }>('/api/nutrition/mother/self-care', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  /**
+   * Get today's self-care log
+   */
+  async getSelfCare(date?: string) {
+    const params = date ? `?date=${date}` : '';
+    return apiRequest<{
+      log: any;
+      isComplete: boolean;
+    }>(`/api/nutrition/mother/self-care${params}`);
+  },
+
+  /**
+   * Get nutrition quiz questions
+   */
+  async getQuizQuestions() {
+    return apiRequest<{
+      questions: Array<{
+        id: string;
+        question: string;
+        options: Array<{ value: number; label: string }>;
+      }>;
+      maxScore: number;
+      disclaimer: string;
+    }>('/api/nutrition/mother/quiz/questions');
+  },
+
+  /**
+   * Submit nutrition quiz
+   */
+  async submitQuiz(answers: {
+    protein: number;
+    vegetables: number;
+    fruits: number;
+    ironFoods: number;
+    hydration: number;
+  }) {
+    return apiRequest<{
+      result: {
+        totalScore: number;
+        classification: 'excellent' | 'needs_improvement' | 'poor';
+        answers: any;
+      };
+      feedback: string;
+      summary: any;
+      message: string;
+    }>('/api/nutrition/mother/quiz', {
+      method: 'POST',
+      body: JSON.stringify({ answers }),
+    });
+  },
+
+  /**
+   * Get today's quiz response
+   */
+  async getTodayQuiz() {
+    return apiRequest<{
+      response: any;
+      hasCompletedToday: boolean;
+    }>('/api/nutrition/mother/quiz/today');
+  },
+
+  /**
+   * Get weekly nutrition score chart
+   */
+  async getWeeklyScoreChart() {
+    return apiRequest<{
+      chartData: Array<{ day: string; date: string; score: number | null }>;
+      chartType: string;
+      xAxis: string;
+      yAxis: string;
+      maxScore: number;
+    }>('/api/nutrition/mother/chart/weekly-score');
+  },
+
+  /**
+   * Get monthly score card
+   */
+  async getMonthlyScore() {
+    return apiRequest<{
+      averageScore: number | null;
+      daysTracked: number;
+      trend: 'improving' | 'stable' | 'declining';
+      lastMonthAverage: number | null;
+    }>('/api/nutrition/mother/monthly-score');
+  },
+};
 

@@ -66,7 +66,9 @@ const feedingRules = {
     name: 'Low Daily Feeding Total Alert',
     description: 'Total daily feeding amount is below recommended minimum (less than 150ml per day)',
     thresholdMl: 150,
-    severity: 'MEDIUM',
+    criticalThresholdMl: 75, // Below 50% = HIGH severity
+    severity: 'MEDIUM', // Default for 75-149ml
+    criticalSeverity: 'HIGH', // For < 75ml
     messageKey: 'low_daily_feeding_total',
     appliesTo: 'ALL',
     category: 'feeding',

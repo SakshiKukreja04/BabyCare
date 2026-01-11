@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { db } = require('../firebaseAdmin');
 const { verifyToken } = require('../middleware/auth');
-const { getBabyWithType } = require('../services/ruleEngine');
+const { getBabyWithType, evaluateBabyStatus, evaluateAllRules } = require('../services/ruleEngine');
 const { calculateAgeSummary } = require('../utils/ageUtils');
 const { getDevelopmentInsight } = require('../services/developmentInsight');
 
@@ -192,6 +192,128 @@ router.get('/:babyId/development-this-week', verifyToken, async (req, res) => {
     return res.status(500).json({
       error: 'Internal Server Error',
       message: 'Failed to fetch development information for this week',
+    });
+  }
+});
+
+/**
+ * GET /babies/:babyId/status
+ * Get current baby status for dashboard summary card
+ * Returns "All Good" status or list of active alerts/reasons
+ */
+router.get('/:babyId/status', verifyToken, async (req, res) => {
+  try {
+    const { babyId } = req.params;
+    const parentId = req.user.uid;
+
+    // Verify baby belongs to parent
+    const babyRef = db.collection('babies').doc(babyId);
+    const babyDoc = await babyRef.get();
+
+    if (!babyDoc.exists) {
+      return res.status(404).json({
+        error: 'Not Found',
+        message: 'Baby not found',
+      });
+    }
+
+    const babyData = babyDoc.data();
+    if (babyData.parentId !== parentId) {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'You do not have access to this baby',
+      });
+    }
+
+    // Get baby status using rule engine
+    const status = await evaluateBabyStatus(babyId, parentId);
+
+    return res.json({
+      success: true,
+      data: {
+        babyId,
+        babyName: babyData.name,
+        isAllGood: status.isAllGood,
+        alertCount: status.alertCount,
+        overallSeverity: status.overallSeverity,
+        summary: status.summary,
+        reasons: status.reasons,
+        activeAlerts: status.activeAlerts.map(alert => ({
+          id: alert.id,
+          ruleId: alert.ruleId,
+          severity: alert.severity,
+          title: alert.title,
+          description: alert.description,
+          message: alert.triggerData?.message,
+          triggerData: alert.triggerData || {},
+          createdAt: alert.createdAt?.toDate?.()?.toISOString() || alert.createdAt,
+          updatedAt: alert.updatedAt?.toDate?.()?.toISOString() || alert.updatedAt || alert.createdAt?.toDate?.()?.toISOString() || alert.createdAt,
+        })),
+      },
+    });
+  } catch (error) {
+    console.error('Error fetching baby status:', error);
+    return res.status(500).json({
+      error: 'Internal Server Error',
+      message: 'Failed to fetch baby status',
+    });
+  }
+});
+
+/**
+ * POST /babies/:babyId/refresh-alerts
+ * Re-evaluate all rules for a baby and update alert messages
+ * Call this to refresh stale alert data with updated messages
+ */
+router.post('/:babyId/refresh-alerts', verifyToken, async (req, res) => {
+  try {
+    const { babyId } = req.params;
+    const parentId = req.user.uid;
+
+    // Verify baby belongs to parent
+    const babyRef = db.collection('babies').doc(babyId);
+    const babyDoc = await babyRef.get();
+
+    if (!babyDoc.exists) {
+      return res.status(404).json({
+        error: 'Not Found',
+        message: 'Baby not found',
+      });
+    }
+
+    const babyData = babyDoc.data();
+    if (babyData.parentId !== parentId) {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'You do not have access to this baby',
+      });
+    }
+
+    // Re-evaluate all rules (this will update existing alert messages)
+    const alerts = await evaluateAllRules(babyId, parentId);
+    
+    // Get updated status
+    const status = await evaluateBabyStatus(babyId, parentId);
+
+    return res.json({
+      success: true,
+      data: {
+        alertsEvaluated: alerts.length,
+        newAlerts: alerts.filter(a => a.isNew).length,
+        updatedAlerts: alerts.filter(a => !a.isNew).length,
+        status: {
+          isAllGood: status.isAllGood,
+          alertCount: status.alertCount,
+          overallSeverity: status.overallSeverity,
+          summary: status.summary,
+        },
+      },
+    });
+  } catch (error) {
+    console.error('Error refreshing alerts:', error);
+    return res.status(500).json({
+      error: 'Internal Server Error',
+      message: 'Failed to refresh alerts',
     });
   }
 });
