@@ -25,6 +25,7 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { toast } from '@/hooks/use-toast';
 import Header from '@/components/layout/Header';
 import PrescriptionReviewModal from '@/components/prescription/PrescriptionReviewModal';
+import ExportFeedbackButton from '@/components/dashboard/ExportFeedbackButton';
 
 const DailyLog = () => {
   const { t } = useLanguage();
@@ -212,7 +213,10 @@ const DailyLog = () => {
 
           <h1 className="text-2xl font-bold text-foreground mb-6">{t('log.title')}</h1>
 
-          {/* Tabs */}
+          {/* Export Button */}
+          <div className="mb-6 flex justify-end">
+            <ExportFeedbackButton variant="outline" showHistory={false} />
+          </div>
           <div className="flex gap-2 mb-6">
             {tabs.map((tab) => (
               <button

@@ -13,6 +13,7 @@ const cryAnalysisRoutes = require('./routes/cryAnalysis');
 const notificationsRoutes = require('./routes/notifications');
 const nutritionRoutes = require('./routes/nutrition');
 const weightRoutes = require('./routes/weight');
+const exportRoutes = require('./routes/export');
 
 // Import background scheduler
 const { initializeScheduler } = require('./services/backgroundScheduler');
@@ -68,6 +69,7 @@ app.use('/api/cry-analysis', cryAnalysisRoutes);
 app.use('/api/notifications', notificationsRoutes);
 app.use('/api/nutrition', nutritionRoutes);
 app.use('/api/weight', weightRoutes);
+app.use('/api', exportRoutes);
 
 // 404 handler
 app.use((req, res) => {

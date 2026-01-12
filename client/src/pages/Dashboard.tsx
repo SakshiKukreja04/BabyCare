@@ -40,6 +40,7 @@ import QuickPrescriptionModal from '@/components/prescription/QuickPrescriptionM
 import RemindersSection from '@/components/dashboard/RemindersSection';
 import NotificationDropdown from '@/components/dashboard/NotificationDropdown';
 import UserSettings from '@/components/UserSettings';
+import ExportFeedbackButton from '@/components/dashboard/ExportFeedbackButton';
 
 const Dashboard = () => {
   const { t } = useLanguage();
@@ -998,11 +999,12 @@ const Dashboard = () => {
 
               {/* Care Logs directly below summary card */}
               <Card>
-                <CardHeader>
+                <CardHeader className="flex flex-row items-center justify-between">
                   <CardTitle className="flex items-center gap-2">
                     <Clock className="w-5 h-5 text-muted-foreground" />
                     Care Logs
                   </CardTitle>
+                  <ExportFeedbackButton variant="outline" showHistory={true} />
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-3">
