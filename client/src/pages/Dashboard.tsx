@@ -45,6 +45,22 @@ const Dashboard = () => {
   const { t } = useLanguage();
 
   const { user } = useAuth();
+
+  /**
+   * Call emergency number (112 - India emergency number)
+   * Opens phone dialer on mobile browsers
+   */
+  const callEmergency = () => {
+    window.location.href = "tel:112";
+  };
+
+  /**
+   * Find nearest hospital using Google Maps
+   * Opens Google Maps search in a new tab
+   */
+  const findHospital = () => {
+    window.open("https://www.google.com/maps/search/nearest+hospital", "_blank");
+  };
   const [showNotifications, setShowNotifications] = useState(false);
   const [babyData, setBabyData] = useState<any>(null);
   const [recentLogs, setRecentLogs] = useState([]);
@@ -1273,6 +1289,7 @@ const Dashboard = () => {
                   <Button
                     variant="outline"
                     className="w-full justify-start gap-3 h-12 border-destructive/30 text-destructive hover:bg-destructive hover:text-destructive-foreground"
+                    onClick={callEmergency}
                   >
                     <Phone className="w-5 h-5" />
                     {t('dashboard.callDoctor')}
@@ -1280,6 +1297,7 @@ const Dashboard = () => {
                   <Button
                     variant="outline"
                     className="w-full justify-start gap-3 h-12 border-destructive/30 text-destructive hover:bg-destructive hover:text-destructive-foreground"
+                    onClick={findHospital}
                   >
                     <MapPin className="w-5 h-5" />
                     {t('dashboard.findHospital')}
