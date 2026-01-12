@@ -175,6 +175,148 @@ function extractSleepContext(careLogs) {
 }
 
 /**
+ * Extract medication context from recent logs
+ */
+function extractMedicationContext(careLogs) {
+  const medicationLogs = careLogs.filter(log => log.type === 'medication');
+
+  if (medicationLogs.length === 0) {
+    return {
+      recent_medications: [],
+      last_medication_time: null,
+    };
+  }
+
+  const recentMeds = medicationLogs.slice(0, 5).map(log => ({
+    name: log.medicineName || log.medicine_name || log.name || 'Unknown',
+    given: log.medicationGiven !== false,
+    time: log.timestamp?.toISOString?.() || log.timestamp,
+    minutes_ago: getMinutesSince(log.timestamp),
+  }));
+
+  return {
+    recent_medications: recentMeds,
+    last_medication_time: recentMeds[0]?.time || null,
+  };
+}
+
+/**
+ * Fetch active prescriptions for baby
+ */
+async function fetchActivePrescriptions(babyId) {
+  try {
+    const snapshot = await db
+      .collection('prescriptions')
+      .where('babyId', '==', babyId)
+      .limit(20)
+      .get();
+
+    if (snapshot.empty) {
+      return [];
+    }
+
+    const prescriptions = snapshot.docs.map(doc => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        medicine_name: data.medicineName || data.medicine_name || 'Unknown',
+        dosage: data.dosage || '',
+        frequency: data.frequency || '',
+        instructions: data.instructions || '',
+        start_date: data.startDate?.toISOString?.() || data.startDate || null,
+        end_date: data.endDate?.toISOString?.() || data.endDate || null,
+        active: data.active !== false,
+      };
+    });
+
+    // Filter to active prescriptions
+    return prescriptions.filter(p => p.active);
+  } catch (error) {
+    console.error('Error fetching prescriptions:', error);
+    return [];
+  }
+}
+
+/**
+ * Build a detailed summary of all care logs
+ */
+function buildCareLogsSummary(careLogs) {
+  if (!careLogs || careLogs.length === 0) {
+    return {
+      total_logs: 0,
+      feeding_count: 0,
+      sleep_count: 0,
+      medication_count: 0,
+      logs_by_type: {},
+      recent_logs: [],
+    };
+  }
+
+  const feedingLogs = careLogs.filter(l => l.type === 'feeding');
+  const sleepLogs = careLogs.filter(l => l.type === 'sleep');
+  const medicationLogs = careLogs.filter(l => l.type === 'medication');
+
+  // Calculate feeding totals
+  const totalFeedingMl = feedingLogs.reduce((sum, log) => {
+    return sum + (log.quantity || log.amount || 0);
+  }, 0);
+
+  // Calculate sleep totals
+  const totalSleepMinutes = sleepLogs.reduce((sum, log) => {
+    return sum + (log.duration || 0);
+  }, 0);
+
+  // Build recent logs summary (last 10)
+  const recentLogs = careLogs.slice(0, 10).map(log => {
+    const minutesAgo = getMinutesSince(log.timestamp);
+    let description = '';
+    
+    if (log.type === 'feeding') {
+      description = `Fed ${log.quantity || log.amount || '?'}ml`;
+    } else if (log.type === 'sleep') {
+      description = `Slept ${log.duration || '?'} minutes`;
+    } else if (log.type === 'medication') {
+      description = `${log.medicationGiven ? 'Gave' : 'Skipped'} ${log.medicineName || 'medication'}`;
+    } else {
+      description = log.notes || log.type;
+    }
+
+    return {
+      type: log.type,
+      description,
+      minutes_ago: minutesAgo,
+      time_str: formatTimeAgo(minutesAgo),
+    };
+  });
+
+  return {
+    total_logs: careLogs.length,
+    feeding_count: feedingLogs.length,
+    sleep_count: sleepLogs.length,
+    medication_count: medicationLogs.length,
+    total_feeding_ml: totalFeedingMl,
+    total_sleep_minutes: totalSleepMinutes,
+    recent_logs: recentLogs,
+  };
+}
+
+/**
+ * Format minutes into a readable time ago string
+ */
+function formatTimeAgo(minutes) {
+  if (minutes === null || minutes === undefined) return 'unknown';
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${Math.round(minutes)}min ago`;
+  const hours = Math.floor(minutes / 60);
+  const mins = Math.round(minutes % 60);
+  if (hours < 24) {
+    return mins > 0 ? `${hours}h ${mins}min ago` : `${hours}h ago`;
+  }
+  const days = Math.floor(hours / 24);
+  return `${days} day${days > 1 ? 's' : ''} ago`;
+}
+
+/**
  * Fetch active reminders for baby
  * Note: Using simple query and filtering in JavaScript to avoid index requirement
  */
@@ -292,12 +434,13 @@ async function buildChatbotContext(babyId) {
     return null;
   }
 
-  // Fetch all data in parallel
-  const [babyProfile, cryAnalysis, careLogs, reminders] = await Promise.all([
+  // Fetch all data in parallel - expanded context window for comprehensive answers
+  const [babyProfile, cryAnalysis, careLogs, reminders, prescriptions] = await Promise.all([
     fetchBabyProfile(babyId),
     fetchLatestCryAnalysis(babyId),
-    fetchRecentCareLogs(babyId, 6),
+    fetchRecentCareLogs(babyId, 48),  // 48 hours of care logs for better context
     fetchActiveReminders(babyId),
+    fetchActivePrescriptions(babyId),
   ]);
 
   if (!babyProfile) {
@@ -307,19 +450,30 @@ async function buildChatbotContext(babyId) {
   const ageMonths = calculateAgeMonths(babyProfile.dob);
   const feedingContext = extractFeedingContext(careLogs);
   const sleepContext = extractSleepContext(careLogs);
+  const medicationContext = extractMedicationContext(careLogs);
   const remindersSummary = buildRemindersSummary(reminders, careLogs);
+  const careLogsSummary = buildCareLogsSummary(careLogs);
 
   return {
     baby_profile: {
+      name: babyProfile.name || 'Baby',
       age_months: ageMonths,
+      weight_kg: babyProfile.weight || null,
       is_premature: babyProfile.gestationalAge !== undefined && babyProfile.gestationalAge < 37,
       gestational_age_at_birth: babyProfile.gestationalAge || null,
+      blood_type: babyProfile.bloodType || null,
+      allergies: babyProfile.allergies || [],
+      medical_conditions: babyProfile.medicalConditions || [],
     },
 
     recent_activity: {
       feeding: feedingContext,
       sleep: sleepContext,
+      medication: medicationContext,
+      all_logs: careLogsSummary,
     },
+
+    prescriptions: prescriptions,
 
     latest_cry_analysis: formatCryAnalysisContext(cryAnalysis),
 
@@ -330,7 +484,8 @@ async function buildChatbotContext(babyId) {
 }
 
 /**
- * Format context as a readable string for the prompt
+ * Format context as a detailed readable string for the prompt
+ * Includes comprehensive information for accurate, personalized responses
  */
 function formatContextForPrompt(context) {
   if (!context) {
@@ -339,50 +494,213 @@ function formatContextForPrompt(context) {
 
   let text = '';
 
-  // Baby profile
-  text += `Baby Age: ${context.baby_profile.age_months} months\n`;
+  // =============================================
+  // 👶 BABY PROFILE
+  // =============================================
+  text += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+  text += `👶 **BABY PROFILE**\n`;
+  text += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+  text += `• Name: ${context.baby_profile.name}\n`;
+  text += `• Age: ${context.baby_profile.age_months} months old\n`;
+  
+  if (context.baby_profile.weight_kg) {
+    text += `• Weight: ${context.baby_profile.weight_kg} kg\n`;
+  }
+  
+  // Add age-specific context
+  const ageMonths = context.baby_profile.age_months;
+  if (ageMonths < 1) {
+    text += `• Developmental Stage: 🌟 Newborn (0-4 weeks)\n`;
+  } else if (ageMonths < 3) {
+    text += `• Developmental Stage: 🌱 Young infant (1-3 months)\n`;
+  } else if (ageMonths < 6) {
+    text += `• Developmental Stage: 🌿 Infant (3-6 months)\n`;
+  } else if (ageMonths < 12) {
+    text += `• Developmental Stage: 🌳 Older infant (6-12 months)\n`;
+  } else {
+    text += `• Developmental Stage: 🚶 Toddler (12+ months)\n`;
+  }
+  
   if (context.baby_profile.is_premature) {
-    text += `Born Prematurely: Yes (${context.baby_profile.gestational_age_at_birth} weeks)\n`;
+    text += `• ⚠️ Born Prematurely: Yes (at ${context.baby_profile.gestational_age_at_birth} weeks gestation)\n`;
+    const correctedAge = context.baby_profile.age_months - Math.round((40 - context.baby_profile.gestational_age_at_birth) / 4);
+    text += `• Corrected Age: ~${Math.max(0, correctedAge)} months\n`;
+  }
+  
+  if (context.baby_profile.blood_type) {
+    text += `• Blood Type: ${context.baby_profile.blood_type}\n`;
+  }
+  
+  if (context.baby_profile.allergies && context.baby_profile.allergies.length > 0) {
+    text += `• ⚠️ Known Allergies: ${context.baby_profile.allergies.join(', ')}\n`;
+  }
+  
+  if (context.baby_profile.medical_conditions && context.baby_profile.medical_conditions.length > 0) {
+    text += `• 🏥 Medical Conditions: ${context.baby_profile.medical_conditions.join(', ')}\n`;
   }
   text += '\n';
 
-  // Feeding context
+  // =============================================
+  // 📊 CARE ACTIVITY SUMMARY (Last 48 hours)
+  // =============================================
+  text += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+  text += `📊 **CARE ACTIVITY SUMMARY** (Last 48 hours)\n`;
+  text += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+  
+  if (context.recent_activity.all_logs) {
+    const logs = context.recent_activity.all_logs;
+    text += `• Total Care Logs: ${logs.total_logs}\n`;
+    text += `• 🍼 Feeding entries: ${logs.feeding_count} (Total: ${logs.total_feeding_ml || 0}ml)\n`;
+    text += `• 😴 Sleep entries: ${logs.sleep_count} (Total: ${Math.round((logs.total_sleep_minutes || 0) / 60 * 10) / 10} hours)\n`;
+    text += `• 💊 Medication entries: ${logs.medication_count}\n`;
+    text += '\n';
+    
+    // Recent activity timeline
+    if (logs.recent_logs && logs.recent_logs.length > 0) {
+      text += `📋 **Recent Activity Timeline:**\n`;
+      logs.recent_logs.forEach((log, i) => {
+        const icon = log.type === 'feeding' ? '🍼' : log.type === 'sleep' ? '😴' : '💊';
+        text += `   ${i + 1}. ${icon} ${log.description} — ${log.time_str}\n`;
+      });
+      text += '\n';
+    }
+  }
+
+  // =============================================
+  // 🍼 FEEDING STATUS
+  // =============================================
+  text += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+  text += `🍼 **FEEDING STATUS**\n`;
+  text += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
   if (context.recent_activity.feeding.time_since_last_feed_minutes !== null) {
-    text += `Last feeding: ${context.recent_activity.feeding.time_since_last_feed_minutes} minutes ago\n`;
+    const mins = context.recent_activity.feeding.time_since_last_feed_minutes;
+    const hours = Math.floor(mins / 60);
+    const remainingMins = Math.round(mins % 60);
+    text += `• Last feeding: ${hours > 0 ? hours + 'h ' : ''}${remainingMins}min ago\n`;
+    
     if (context.recent_activity.feeding.feeding_overdue) {
-      text += `⚠️ Feeding is overdue\n`;
+      text += `• ❌ STATUS: FEEDING OVERDUE (over 3 hours since last feed)\n`;
+    } else if (mins < 60) {
+      text += `• ✅ STATUS: Recently fed\n`;
+    } else if (mins < 120) {
+      text += `• ⏳ STATUS: May need feeding soon\n`;
+    } else {
+      text += `• ⚠️ STATUS: Should consider feeding\n`;
     }
-  }
-
-  // Sleep context
-  if (context.recent_activity.sleep.last_sleep_end) {
-    text += `Last sleep ended: ${context.recent_activity.sleep.time_since_last_feed_minutes} minutes ago\n`;
-    if (context.recent_activity.sleep.recently_woke_up) {
-      text += `Baby woke up recently\n`;
-    }
+  } else {
+    text += `• No recent feeding data available\n`;
   }
   text += '\n';
 
-  // Cry analysis
+  // =============================================
+  // 😴 SLEEP STATUS
+  // =============================================
+  text += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+  text += `😴 **SLEEP STATUS**\n`;
+  text += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+  if (context.recent_activity.sleep.last_sleep_end) {
+    if (context.recent_activity.sleep.recently_woke_up) {
+      text += `• 🌅 Just woke up (within last 30 minutes)\n`;
+      text += `• STATUS: May be groggy or need comfort\n`;
+    } else if (context.recent_activity.sleep.sleep_overdue) {
+      text += `• ❌ SLEEP OVERDUE: Been awake for over 4 hours\n`;
+      text += `• STATUS: Likely overtired, may need help settling\n`;
+    } else {
+      text += `• ✅ Normal awake time\n`;
+    }
+  } else {
+    text += `• No recent sleep data available\n`;
+  }
+  text += '\n';
+
+  // =============================================
+  // 💊 MEDICATIONS & PRESCRIPTIONS
+  // =============================================
+  text += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+  text += `💊 **MEDICATIONS & PRESCRIPTIONS**\n`;
+  text += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+  
+  // Active prescriptions
+  if (context.prescriptions && context.prescriptions.length > 0) {
+    text += `**Active Prescriptions:**\n`;
+    context.prescriptions.forEach((rx, i) => {
+      text += `   ${i + 1}. 💉 ${rx.medicine_name}\n`;
+      if (rx.dosage) text += `      • Dosage: ${rx.dosage}\n`;
+      if (rx.frequency) text += `      • Frequency: ${rx.frequency}\n`;
+      if (rx.instructions) text += `      • Instructions: ${rx.instructions}\n`;
+    });
+    text += '\n';
+  } else {
+    text += `• No active prescriptions\n`;
+  }
+  
+  // Recent medication given
+  if (context.recent_activity.medication && context.recent_activity.medication.recent_medications.length > 0) {
+    text += `**Recent Medications Given:**\n`;
+    context.recent_activity.medication.recent_medications.forEach((med, i) => {
+      const status = med.given ? '✅ Given' : '❌ Skipped';
+      text += `   ${i + 1}. ${med.name} — ${status} (${formatTimeAgoSimple(med.minutes_ago)})\n`;
+    });
+    text += '\n';
+  }
+
+  // =============================================
+  // 🔊 LATEST CRY ANALYSIS
+  // =============================================
   if (context.latest_cry_analysis) {
-    text += `Latest cry analysis:\n`;
-    text += `- Pattern: ${context.latest_cry_analysis.final_label} (confidence: ${(context.latest_cry_analysis.confidence * 100).toFixed(0)}%)\n`;
+    text += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+    text += `🔊 **LATEST CRY ANALYSIS**\n`;
+    text += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+    const conf = (context.latest_cry_analysis.confidence * 100).toFixed(0);
+    text += `• Detected Pattern: **${context.latest_cry_analysis.final_label.toUpperCase()}** (${conf}% confidence)\n`;
+    
+    // Add interpretation
+    const label = context.latest_cry_analysis.final_label.toLowerCase();
+    if (label === 'hunger') {
+      text += `• 🍼 Interpretation: Baby is likely hungry\n`;
+    } else if (label === 'tired') {
+      text += `• 😴 Interpretation: Baby is likely tired/sleepy\n`;
+    } else if (label === 'belly_pain') {
+      text += `• 😣 Interpretation: Baby may have gas or tummy discomfort\n`;
+    } else if (label === 'burping') {
+      text += `• 🫧 Interpretation: Baby may need to burp\n`;
+    } else if (label === 'discomfort') {
+      text += `• 😤 Interpretation: Baby may be uncomfortable (wet diaper, position, etc.)\n`;
+    }
+    
     if (context.latest_cry_analysis.explanation && context.latest_cry_analysis.explanation.length > 0) {
-      text += `- Factors: ${context.latest_cry_analysis.explanation.join(', ')}\n`;
+      text += `• Contributing factors: ${context.latest_cry_analysis.explanation.join('; ')}\n`;
     }
     text += '\n';
   }
 
-  // Active reminders
+  // =============================================
+  // ⏰ ACTIVE ALERTS/REMINDERS
+  // =============================================
   if (context.active_reminders && context.active_reminders.length > 0) {
-    text += `Active reminders/alerts:\n`;
-    context.active_reminders.forEach(reminder => {
-      text += `- ${reminder}\n`;
+    text += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+    text += `⏰ **ACTIVE ALERTS/REMINDERS**\n`;
+    text += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+    context.active_reminders.forEach((reminder, i) => {
+      text += `   ${i + 1}. 🔔 ${reminder}\n`;
     });
     text += '\n';
   }
 
   return text;
+}
+
+/**
+ * Simple time ago formatter for inline use
+ */
+function formatTimeAgoSimple(minutes) {
+  if (minutes === null || minutes === undefined) return 'unknown';
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${Math.round(minutes)}min ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
 }
 
 module.exports = {
@@ -392,4 +710,5 @@ module.exports = {
   fetchLatestCryAnalysis,
   fetchRecentCareLogs,
   fetchActiveReminders,
+  fetchActivePrescriptions,
 };

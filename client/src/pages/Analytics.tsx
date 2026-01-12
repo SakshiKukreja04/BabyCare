@@ -1,41 +1,47 @@
-import { Calendar, TrendingUp, AlertTriangle, CheckCircle2, XCircle } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Calendar, TrendingUp, AlertTriangle, CheckCircle2, XCircle, Loader2, ArrowUp, ArrowDown } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart';
 import { Line, LineChart, Bar, BarChart, ResponsiveContainer, XAxis, YAxis } from 'recharts';
+import { useAuth } from '@/contexts/AuthContext';
+import { careLogsApi, weightTrackingApi, alertsApi } from '@/lib/api';
+import { getBabiesByParent } from '@/lib/firestore';
+import {
+  calculateMonthlyAnalytics,
+  getMonthName,
+  getCurrentMonthInfo,
+  getLogsPerWeek,
+  getConsistencyStatus,
+  getWeightChartData,
+  getWeightTrend,
+} from '@/lib/analytics';
 
 const Analytics = () => {
-  // Mock data
-  const monthlyOverview = {
-    logsCount: 28,
-    missedDays: 3,
-    consistency: 'Good' as const,
-  };
-
-  const weightData = [
-    { date: 'Week 1', weight: 4.2 },
-    { date: 'Week 2', weight: 4.4 },
-    { date: 'Week 3', weight: 4.5 },
-    { date: 'Week 4', weight: 4.7 },
-    { date: 'Week 5', weight: 4.8 },
-    { date: 'Week 6', weight: 5.0 },
-    { date: 'Week 7', weight: 5.1 },
-    { date: 'Week 8', weight: 5.2 },
-  ];
-
-  const logsPerWeek = [
-    { week: 'Week 1', logs: 6 },
-    { week: 'Week 2', logs: 7 },
-    { week: 'Week 3', logs: 5 },
-    { week: 'Week 4', logs: 8 },
-  ];
-
-  const alertHistory = {
-    low: 12,
-    medium: 5,
-    high: 1,
-  };
+  const { user } = useAuth();
+  const [loading, setLoading] = useState(true);
+  const [monthlyOverview, setMonthlyOverview] = useState({
+    month: '',
+    daysWithLogs: 0,
+    missedDays: 0,
+    consistency: 0,
+    consistencyLevel: 'Poor' as 'Excellent' | 'Good' | 'Needs Attention' | 'Poor',
+    daysCountedForConsistency: 0,
+    startDate: null as string | null,
+  });
+  const [logsPerWeekData, setLogsPerWeekData] = useState<Array<{ week: string; logs: number }>>([]);
+  const [weightChartData, setWeightChartData] = useState<Array<{ week: string; weight: number }>>([]);
+  const [weightTrend, setWeightTrend] = useState<{ trend: 'increasing' | 'decreasing' | 'stable'; change: number }>({
+    trend: 'stable',
+    change: 0,
+  });
+  const [alertHistory, setAlertHistory] = useState({
+    low: 0,
+    medium: 0,
+    high: 0,
+  });
+  const [babyName, setBabyName] = useState('Baby');
 
   const chartConfig = {
     weight: {
@@ -48,16 +54,102 @@ const Analytics = () => {
     },
   };
 
-  const getConsistencyColor = (consistency: string) => {
-    switch (consistency) {
+  // Fetch care logs on component mount
+  useEffect(() => {
+    const fetchAnalyticsData = async () => {
+      try {
+        if (!user?.uid) return;
+
+        // Get babies for the parent
+        const babies = await getBabiesByParent(user.uid);
+        if (babies.length === 0) {
+          setLoading(false);
+          return;
+        }
+
+        const babyId = babies[0].id;
+        setBabyName(babies[0].name || 'Baby');
+
+        // Fetch care logs for the baby
+        const response = await careLogsApi.getByBaby(babyId, 1000);
+        const careLogs = response.careLogs || [];
+
+        // Calculate monthly analytics for current month
+        const { month, year } = getCurrentMonthInfo();
+        const analytics = calculateMonthlyAnalytics(careLogs, month, year);
+
+        // Get logs per week for chart (now counts total logs, not unique days)
+        const weeksData = getLogsPerWeek(careLogs, month, year);
+
+        // Fetch all weight entries for the baby (to show complete history)
+        const weightResponse = await weightTrackingApi.getWeightEntries(babyId, 500);
+        const weightEntries = weightResponse.weightEntries || [];
+
+        // Process weight data for chart
+        const processedWeightData = getWeightChartData(weightEntries);
+        const trend = getWeightTrend(weightEntries);
+
+        // Fetch alert history for current month
+        const alertResponse = await alertsApi.getMonthlyHistory(babyId, month, year);
+        console.log('Alert response:', alertResponse);
+        const alertData = alertResponse.alerts || { low: 0, medium: 0, high: 0 };
+        console.log('Alert data:', alertData);
+
+        setMonthlyOverview({
+          month: analytics.month,
+          daysWithLogs: analytics.daysWithLogs,
+          missedDays: analytics.missedDays,
+          consistency: analytics.consistency,
+          consistencyLevel: analytics.consistencyLevel,
+          daysCountedForConsistency: analytics.daysWithLogs + analytics.missedDays,
+          startDate: null,
+        });
+
+        setLogsPerWeekData(weeksData);
+        setWeightChartData(processedWeightData);
+        setWeightTrend(trend);
+        setAlertHistory({
+          low: alertData.low,
+          medium: alertData.medium,
+          high: alertData.high,
+        });
+        setLoading(false);
+      } catch (error) {
+        console.error('Error fetching analytics data:', error);
+        setLoading(false);
+      }
+    };
+
+    fetchAnalyticsData();
+  }, [user]);
+
+  const getConsistencyColor = (consistencyLevel: string) => {
+    switch (consistencyLevel) {
+      case 'Excellent':
+        return 'bg-alert-success/20 text-alert-success border border-alert-success/30';
       case 'Good':
-        return 'bg-alert-success text-alert-success';
+        return 'bg-healthcare-mint/20 text-healthcare-mint border border-healthcare-mint/30';
       case 'Needs Attention':
-        return 'bg-alert-medium text-alert-medium';
+        return 'bg-alert-medium/20 text-alert-medium border border-alert-medium/30';
+      case 'Poor':
+        return 'bg-alert-high/20 text-alert-high border border-alert-high/30';
       default:
         return 'bg-muted text-muted-foreground';
     }
   };
+
+  if (loading) {
+    return (
+      <DashboardLayout>
+        <div className="min-h-screen bg-background flex items-center justify-center">
+          <div className="text-center">
+            <Loader2 className="w-10 h-10 animate-spin text-primary mx-auto mb-4" />
+            <p className="text-muted-foreground">Loading analytics...</p>
+          </div>
+        </div>
+      </DashboardLayout>
+    );
+  }
 
   return (
     <DashboardLayout>
@@ -82,39 +174,48 @@ const Analytics = () => {
               <CardContent>
                 <div className="grid md:grid-cols-3 gap-4 mb-6">
                   <div className="p-4 bg-healthcare-blue-light/30 rounded-xl">
-                    <p className="text-sm text-muted-foreground mb-1">Total Logs</p>
-                    <p className="text-2xl font-bold text-foreground">{monthlyOverview.logsCount}</p>
+                    <p className="text-sm text-muted-foreground mb-1">Days with Logs</p>
+                    <p className="text-2xl font-bold text-foreground">{monthlyOverview.daysWithLogs}</p>
                   </div>
                   <div className="p-4 bg-healthcare-peach/30 rounded-xl">
                     <p className="text-sm text-muted-foreground mb-1">Missed Days</p>
                     <p className="text-2xl font-bold text-foreground">{monthlyOverview.missedDays}</p>
                   </div>
                   <div className="p-4 bg-healthcare-mint-light/30 rounded-xl">
-                    <p className="text-sm text-muted-foreground mb-1">Consistency</p>
-                    <Badge className={`mt-1 ${getConsistencyColor(monthlyOverview.consistency)}`}>
-                      {monthlyOverview.consistency}
-                    </Badge>
+                    <p className="text-sm text-muted-foreground mb-1">Consistency %</p>
+                    <p className="text-2xl font-bold text-foreground">{monthlyOverview.consistency}%</p>
                   </div>
                 </div>
 
                 <div className="p-4 bg-muted/50 rounded-xl">
                   <div className="flex items-start gap-2">
-                    {monthlyOverview.consistency === 'Good' ? (
+                    {monthlyOverview.consistencyLevel === 'Excellent' || monthlyOverview.consistencyLevel === 'Good' ? (
                       <CheckCircle2 className="w-5 h-5 text-alert-success mt-0.5" />
                     ) : (
                       <AlertTriangle className="w-5 h-5 text-alert-medium mt-0.5" />
                     )}
-                    <div>
+                    <div className="flex-1">
                       <p className="text-sm font-medium text-foreground mb-1">
-                        Consistency Indicator: {monthlyOverview.consistency}
+                        Consistency Indicator: {monthlyOverview.consistencyLevel}
                       </p>
-                      <p className="text-xs text-muted-foreground">
-                        {monthlyOverview.consistency === 'Good'
-                          ? 'You\'re maintaining regular care logs. Keep it up!'
+                      <p className="text-xs text-muted-foreground mb-2">
+                        {monthlyOverview.consistencyLevel === 'Excellent' || monthlyOverview.consistencyLevel === 'Good'
+                          ? "You're maintaining regular care logs. Keep it up!"
                           : 'Consider logging more consistently for better insights.'}
                       </p>
+                      {monthlyOverview.daysCountedForConsistency > 0 && (
+                        <p className="text-xs text-muted-foreground font-medium">
+                          Calculated over {monthlyOverview.daysCountedForConsistency} day{monthlyOverview.daysCountedForConsistency !== 1 ? 's' : ''} (from when you started logging)
+                        </p>
+                      )}
                     </div>
                   </div>
+                </div>
+
+                <div className="mt-4 p-3 bg-primary/5 rounded-lg border border-primary/20">
+                  <p className="text-xs text-muted-foreground">
+                    <strong>{monthlyOverview.month}</strong> - Consistency is calculated from your first log entry. If logs are entered on any day, that day counts as 1. Only days since you started logging are counted as missed days.
+                  </p>
                 </div>
               </CardContent>
             </Card>
@@ -162,9 +263,11 @@ const Analytics = () => {
           {/* Baby Growth Awareness */}
           <Card className="mb-6 shadow-card">
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <TrendingUp className="w-5 h-5 text-healthcare-mint" />
-                Baby Growth Awareness
+              <CardTitle className="flex items-center gap-2 justify-between">
+                <div className="flex items-center gap-2">
+                  <TrendingUp className="w-5 h-5 text-healthcare-mint" />
+                  Baby Growth Awareness
+                </div>
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -180,38 +283,78 @@ const Analytics = () => {
                 </div>
               </div>
 
-              <ChartContainer config={chartConfig} className="h-[300px]">
-                <LineChart data={weightData}>
-                  <XAxis dataKey="date" />
-                  <YAxis domain={['dataMin - 0.2', 'dataMax + 0.2']} />
-                  <ChartTooltip content={<ChartTooltipContent />} />
-                  <Line
-                    type="monotone"
-                    dataKey="weight"
-                    stroke="var(--color-weight)"
-                    strokeWidth={2}
-                    dot={{ r: 4 }}
-                    activeDot={{ r: 6 }}
-                  />
-                </LineChart>
-              </ChartContainer>
+              {weightChartData.length > 0 ? (
+                <>
+                  <div className="mb-4 flex items-center gap-4">
+                    {weightChartData.length > 1 && (
+                      <div className={`flex items-center gap-2 px-3 py-2 rounded-lg ${
+                        weightTrend.trend === 'increasing' ? 'bg-alert-success/10' :
+                        weightTrend.trend === 'decreasing' ? 'bg-alert-medium/10' :
+                        'bg-secondary/50'
+                      }`}>
+                        {weightTrend.trend === 'increasing' ? (
+                          <ArrowUp className="w-4 h-4 text-alert-success" />
+                        ) : weightTrend.trend === 'decreasing' ? (
+                          <ArrowDown className="w-4 h-4 text-alert-medium" />
+                        ) : null}
+                        <span className={`text-sm font-medium ${
+                          weightTrend.trend === 'increasing' ? 'text-alert-success' :
+                          weightTrend.trend === 'decreasing' ? 'text-alert-medium' :
+                          'text-muted-foreground'
+                        }`}>
+                          {weightTrend.trend === 'stable' ? 'Weight Stable' : `${Math.abs(weightTrend.change).toFixed(2)}kg ${weightTrend.trend === 'increasing' ? 'gain' : 'loss'}`}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  <ChartContainer config={chartConfig} className="h-[300px]">
+                    <LineChart data={weightChartData}>
+                      <XAxis dataKey="week" />
+                      <YAxis domain={['dataMin - 0.2', 'dataMax + 0.2']} />
+                      <ChartTooltip content={<ChartTooltipContent />} />
+                      <Line
+                        type="monotone"
+                        dataKey="weight"
+                        stroke="var(--color-weight)"
+                        strokeWidth={2}
+                        dot={{ r: 4 }}
+                        activeDot={{ r: 6 }}
+                      />
+                    </LineChart>
+                  </ChartContainer>
+                </>
+              ) : (
+                <div className="h-[300px] flex items-center justify-center bg-muted/30 rounded-lg">
+                  <p className="text-muted-foreground">No weight data recorded yet. Add weight entries from the Daily Log page.</p>
+                </div>
+              )}
             </CardContent>
           </Card>
 
           {/* Logs Per Week */}
           <Card className="shadow-card">
             <CardHeader>
-              <CardTitle className="text-lg">Logs Per Week</CardTitle>
+              <CardTitle className="text-lg flex items-center gap-2">
+                <TrendingUp className="w-5 h-5 text-primary" />
+                Daily Logs Tracking - {monthlyOverview.month}
+              </CardTitle>
             </CardHeader>
             <CardContent>
-              <ChartContainer config={chartConfig} className="h-[250px]">
-                <BarChart data={logsPerWeek}>
-                  <XAxis dataKey="week" />
-                  <YAxis />
-                  <ChartTooltip content={<ChartTooltipContent />} />
-                  <Bar dataKey="logs" fill="var(--color-logs)" radius={[8, 8, 0, 0]} />
-                </BarChart>
-              </ChartContainer>
+              {logsPerWeekData.length > 0 ? (
+                <ChartContainer config={chartConfig} className="h-[250px]">
+                  <BarChart data={logsPerWeekData}>
+                    <XAxis dataKey="week" />
+                    <YAxis />
+                    <ChartTooltip content={<ChartTooltipContent />} />
+                    <Bar dataKey="logs" fill="var(--color-logs)" radius={[8, 8, 0, 0]} />
+                  </BarChart>
+                </ChartContainer>
+              ) : (
+                <div className="h-[250px] flex items-center justify-center bg-muted/30 rounded-lg">
+                  <p className="text-muted-foreground">No logs recorded yet for this month</p>
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>

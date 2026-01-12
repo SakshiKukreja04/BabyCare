@@ -1,11 +1,11 @@
 const { db, admin } = require('../firebaseAdmin');
 const { sendPushNotification } = require('./fcm');
-const { sendWhatsAppMessage } = require('./whatsapp');
+const { sendSMS } = require('./sms.service');
 const { updateReminderStatus } = require('./reminders');
 
 /**
  * Notification Service
- * Sends reminders via FCM (web) and WhatsApp
+ * Sends reminders via FCM (web) and Twilio SMS (for HIGH priority)
  */
 
 /**
@@ -16,7 +16,7 @@ const { updateReminderStatus } = require('./reminders');
 async function sendReminderNotification(reminder) {
   const status = {
     web: { success: false, messageId: null, error: null },
-    whatsapp: { success: false, messageId: null, error: null },
+    sms: { success: false, messageId: null, error: null },
   };
 
   try {
@@ -37,14 +37,15 @@ async function sendReminderNotification(reminder) {
       status.web = await sendWebReminder(reminder, fcmToken);
     }
 
-    // Send WhatsApp Notification
-    if (reminder.channels.includes('whatsapp') || reminder.channels.includes('both')) {
-      status.whatsapp = await sendWhatsAppReminder(reminder, phoneNumber);
+    // Send SMS Notification (Twilio)
+    // Only send SMS for sms channel type (not for whatsapp for backward compatibility)
+    if (reminder.channels.includes('sms') || reminder.channels.includes('both')) {
+      status.sms = await sendSMSReminder(reminder, phoneNumber);
     }
 
     // Update reminder status based on results
-    const allSucceeded = status.web.success && status.whatsapp.success;
-    const anyFailed = !status.web.success || !status.whatsapp.success;
+    const allSucceeded = status.web.success && status.sms.success;
+    const anyFailed = !status.web.success || !status.sms.success;
 
     if (allSucceeded) {
       // All channels succeeded
@@ -53,7 +54,7 @@ async function sendReminderNotification(reminder) {
         ├─ ID: ${reminder.id}
         ├─ Medicine: ${reminder.medicine_name}
         ├─ Web: Success (${status.web.messageId})
-        ├─ WhatsApp: Success (${status.whatsapp.messageId})
+        ├─ SMS: Success (${status.sms.messageId})
         └─ Status: SENT`);
     } else if (status.web.success) {
       // At least web notification succeeded, mark as sent
@@ -62,7 +63,7 @@ async function sendReminderNotification(reminder) {
         ├─ ID: ${reminder.id}
         ├─ Medicine: ${reminder.medicine_name}
         ├─ Web: Success (${status.web.messageId})
-        ├─ WhatsApp: ${status.whatsapp.error || 'Not sent'}
+        ├─ SMS: ${status.sms.error || 'Not sent'}
         └─ Status: SENT`);
     } else {
       // All failed or only partial success
@@ -76,7 +77,7 @@ async function sendReminderNotification(reminder) {
         ├─ ID: ${reminder.id}
         ├─ Medicine: ${reminder.medicine_name}
         ├─ Web: ${status.web.error || 'Failed'}
-        ├─ WhatsApp: ${status.whatsapp.error || 'Failed'}
+        ├─ SMS: ${status.sms.error || 'Failed'}
         └─ Status: FAILED`);
     }
 
@@ -86,7 +87,7 @@ async function sendReminderNotification(reminder) {
     await updateReminderStatus(reminder.id, 'failed', error.message);
     return {
       web: { success: false, error: error.message },
-      whatsapp: { success: false, error: error.message },
+      sms: { success: false, error: error.message },
     };
   }
 }
@@ -165,46 +166,43 @@ async function sendWebReminder(reminder, fcmToken) {
 }
 
 /**
- * Send WhatsApp reminder notification
+ * Send SMS reminder notification via Twilio
  * @param {Object} reminder - Reminder object
  * @param {string} phoneNumber - Phone number with country code
  * @returns {Promise<Object>} Send status
  */
-async function sendWhatsAppReminder(reminder, phoneNumber) {
+async function sendSMSReminder(reminder, phoneNumber) {
   try {
     if (!phoneNumber) {
+      console.warn('⚠️ [SMS] No phone number available for parent, skipping SMS');
       return { success: false, error: 'No phone number available' };
     }
 
-    const message = `👶 *BabyCare Reminder*
+    const message = `🍼 CareNest Medication Reminder\n\nTime to give ${reminder.medicine_name} (${reminder.dosage})\nFrequency: ${reminder.frequency}\n\nYou're doing great! ❤️`;
 
-It's time to give *${reminder.medicine_name}* (${reminder.dosage}).
+    const result = await sendSMS(phoneNumber, message);
 
-Frequency: ${reminder.frequency}
-
-You're doing great! ❤️
-
-_BabyCare - Your Baby's Health, Our Priority_`;
-
-    const response = await sendWhatsAppMessage(phoneNumber, message);
-
-    if (response && response.messages && response.messages[0]) {
-      const messageId = response.messages[0].id;
-      console.log(`✅ [WhatsApp] Notification sent
-        ├─ Message ID: ${messageId}
-        ├─ Reminder: ${reminder.id}
-        ├─ Medicine: ${reminder.medicine_name}
+    if (result.success) {
+      console.log(`✅ [SMS] Medication reminder sent successfully
+        ├─ SID: ${result.sid}
         ├─ To: ${phoneNumber}
+        ├─ Medicine: ${reminder.medicine_name}
+        ├─ Reminder ID: ${reminder.id}
         └─ Timestamp: ${new Date().toISOString()}`);
-      return { success: true, messageId };
+      return { success: true, messageId: result.sid };
+    } else {
+      console.warn(`⚠️ [SMS] Failed to send reminder
+        ├─ Phone: ${phoneNumber}
+        ├─ Error: ${result.error}
+        └─ Medicine: ${reminder.medicine_name}`);
+      return { success: false, error: result.error };
     }
-
-    return { success: false, error: 'Invalid WhatsApp response' };
   } catch (error) {
-    console.error('❌ [WhatsApp] Error sending reminder notification:', error.message);
+    console.error('❌ [SMS] Error sending reminder notification:', error.message);
     return { success: false, error: error.message };
   }
 }
+
 
 /**
  * Batch send all pending reminders (called by scheduler)
@@ -261,6 +259,6 @@ async function processPendingReminders() {
 module.exports = {
   sendReminderNotification,
   sendWebReminder,
-  sendWhatsAppReminder,
+  sendSMSReminder,
   processPendingReminders,
 };

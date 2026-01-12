@@ -277,10 +277,10 @@ const ReminderCard = ({ reminder, onDismiss }) => {
             <span className="text-blue-600">Web</span>
           </div>
         )}
-        {channels.includes('whatsapp') && (
-          <div className="flex items-center gap-1 bg-green-50 px-2 py-1 rounded text-xs">
-            <MessageCircle className="w-3 h-3 text-green-600" />
-            <span className="text-green-600">WhatsApp</span>
+        {channels.includes('sms') && (
+          <div className="flex items-center gap-1 bg-purple-50 px-2 py-1 rounded text-xs">
+            <MessageCircle className="w-3 h-3 text-purple-600" />
+            <span className="text-purple-600">SMS</span>
           </div>
         )}
       </div>

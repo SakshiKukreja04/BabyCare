@@ -29,18 +29,33 @@ function getTodayRange() {
 
 /**
  * Get week date range (Monday to Sunday)
+ * Fixed: Properly calculates week boundaries without mutation issues
  */
 function getWeekRange(date = new Date()) {
-  const d = new Date(date);
-  const day = d.getDay();
-  const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Adjust for Monday start
+  const now = new Date(date);
+  const dayOfWeek = now.getDay(); // 0 = Sunday, 1 = Monday, etc.
   
-  const monday = new Date(d.setDate(diff));
+  // Calculate days to subtract to get to Monday
+  // If Sunday (0), go back 6 days. Otherwise, go back (dayOfWeek - 1) days
+  const daysToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+  
+  // Create Monday date (start of week)
+  const monday = new Date(now);
+  monday.setDate(now.getDate() - daysToMonday);
   monday.setHours(0, 0, 0, 0);
   
+  // Create Sunday date (end of week) - 6 days after Monday
   const sunday = new Date(monday);
   sunday.setDate(monday.getDate() + 6);
   sunday.setHours(23, 59, 59, 999);
+  
+  console.log('📅 Week calculation:', {
+    today: formatDate(now),
+    dayOfWeek: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][dayOfWeek],
+    daysToMonday,
+    monday: formatDate(monday),
+    sunday: formatDate(sunday)
+  });
   
   return { startOfWeek: monday, endOfWeek: sunday };
 }
@@ -63,10 +78,13 @@ function getDayName(date) {
 }
 
 /**
- * Format date as YYYY-MM-DD
+ * Format date as YYYY-MM-DD using local time (not UTC)
  */
 function formatDate(date) {
-  return date.toISOString().split('T')[0];
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 // ============================================
@@ -367,18 +385,17 @@ function isSelfCareComplete(selfCareLog) {
  */
 async function getWeeklySelfCareStats(motherId) {
   const { startOfWeek, endOfWeek } = getWeekRange();
-  
-  const logsQuery = await db.collection('motherSelfCareLogs')
-    .where('motherId', '==', motherId)
-    .get();
-  
-  // Filter logs within this week
   const startDate = formatDate(startOfWeek);
   const endDate = formatDate(endOfWeek);
   
-  const weekLogs = logsQuery.docs
-    .map(doc => doc.data())
-    .filter(log => log.date >= startDate && log.date <= endDate);
+  // Query with date range constraints
+  const logsQuery = await db.collection('motherSelfCareLogs')
+    .where('motherId', '==', motherId)
+    .where('date', '>=', startDate)
+    .where('date', '<=', endDate)
+    .get();
+  
+  const weekLogs = logsQuery.docs.map(doc => doc.data());
   
   let completeDays = 0;
   let waterDays = 0;
@@ -530,23 +547,21 @@ async function getNutritionQuizResponse(motherId, date = formatDate(new Date()))
  */
 async function getWeeklyNutritionChartData(motherId) {
   const { startOfWeek, endOfWeek } = getWeekRange();
-  
-  const logsQuery = await db.collection('motherNutritionQuizResponses')
-    .where('motherId', '==', motherId)
-    .get();
-  
-  // Filter logs within this week
   const startDate = formatDate(startOfWeek);
   const endDate = formatDate(endOfWeek);
   
-  const weekLogs = logsQuery.docs
-    .map(doc => doc.data())
-    .filter(log => log.date >= startDate && log.date <= endDate);
+  // Query with date range constraints
+  const logsQuery = await db.collection('motherNutritionQuizResponses')
+    .where('motherId', '==', motherId)
+    .where('date', '>=', startDate)
+    .where('date', '<=', endDate)
+    .get();
   
   // Map by date
   const scoreByDate = {};
-  weekLogs.forEach(log => {
-    scoreByDate[log.date] = log.totalScore;
+  logsQuery.docs.forEach(doc => {
+    const data = doc.data();
+    scoreByDate[data.date] = data.totalScore;
   });
   
   // Generate chart data for each day of the week
@@ -554,8 +569,9 @@ async function getWeeklyNutritionChartData(motherId) {
   const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   
   for (let i = 0; i < 7; i++) {
-    const date = new Date(startOfWeek);
-    date.setDate(startOfWeek.getDate() + i);
+    // Clone the date to avoid mutation
+    const date = new Date(startOfWeek.getTime());
+    date.setDate(date.getDate() + i);
     const dateStr = formatDate(date);
     
     chartData.push({
@@ -575,20 +591,27 @@ async function getMonthlyNutritionScoreCard(motherId) {
   const { startOfMonth, endOfMonth } = getMonthRange();
   const lastMonth = getMonthRange(new Date(new Date().setMonth(new Date().getMonth() - 1)));
   
-  const logsQuery = await db.collection('motherNutritionQuizResponses')
-    .where('motherId', '==', motherId)
-    .get();
-  
-  // Filter logs by month
   const startDate = formatDate(startOfMonth);
   const endDate = formatDate(endOfMonth);
   const lastStartDate = formatDate(lastMonth.startOfMonth);
   const lastEndDate = formatDate(lastMonth.endOfMonth);
   
-  const allLogs = logsQuery.docs.map(doc => doc.data());
+  // Query this month
+  const thisMonthQuery = await db.collection('motherNutritionQuizResponses')
+    .where('motherId', '==', motherId)
+    .where('date', '>=', startDate)
+    .where('date', '<=', endDate)
+    .get();
   
-  const thisMonthLogs = allLogs.filter(log => log.date >= startDate && log.date <= endDate);
-  const lastMonthLogs = allLogs.filter(log => log.date >= lastStartDate && log.date <= lastEndDate);
+  // Query last month
+  const lastMonthQuery = await db.collection('motherNutritionQuizResponses')
+    .where('motherId', '==', motherId)
+    .where('date', '>=', lastStartDate)
+    .where('date', '<=', lastEndDate)
+    .get();
+  
+  const thisMonthLogs = thisMonthQuery.docs.map(doc => doc.data());
+  const lastMonthLogs = lastMonthQuery.docs.map(doc => doc.data());
   
   // Calculate averages
   const thisMonthAvg = thisMonthLogs.length > 0
@@ -623,46 +646,41 @@ async function getMonthlyNutritionScoreCard(motherId) {
  */
 async function getWeeklyMealConsistency(motherId) {
   const { startOfWeek, endOfWeek } = getWeekRange();
-  
-  const logsQuery = await db.collection('motherSelfCareLogs')
-    .where('motherId', '==', motherId)
-    .get();
-  
   const startDate = formatDate(startOfWeek);
   const endDate = formatDate(endOfWeek);
   
+  // Query with date range constraints
+  const logsQuery = await db.collection('motherSelfCareLogs')
+    .where('motherId', '==', motherId)
+    .where('date', '>=', startDate)
+    .where('date', '<=', endDate)
+    .get();
+  
   console.log('🔍 MEAL CONSISTENCY DEBUG:');
   console.log('   Week range:', { startDate, endDate });
-  console.log('   Total logs in DB:', logsQuery.docs.length);
-  
-  // Show all logs found
-  logsQuery.docs.forEach(doc => {
-    const data = doc.data();
-    console.log(`   📅 ${data.date}:`, JSON.stringify(data.mealsTaken));
-  });
-  
-  const weekLogs = logsQuery.docs
-    .map(doc => doc.data())
-    .filter(log => log.date >= startDate && log.date <= endDate);
-  
-  console.log('   Logs in week range:', weekLogs.length);
+  console.log('   Logs in week range:', logsQuery.docs.length);
   
   // Create map by date
   const logsByDate = {};
-  weekLogs.forEach(log => {
-    logsByDate[log.date] = log;
+  logsQuery.docs.forEach(doc => {
+    const data = doc.data();
+    logsByDate[data.date] = data;
+    console.log(`   📅 ${data.date}:`, JSON.stringify(data.mealsTaken));
   });
   
-  // Generate 7 days
+  // Generate 7 days - starting from Monday
   const heatmapData = [];
+  const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  
   for (let i = 0; i < 7; i++) {
-    const date = new Date(startOfWeek);
+    // Clone the date to avoid mutation
+    const date = new Date(startOfWeek.getTime());
     date.setDate(date.getDate() + i);
     const dateStr = formatDate(date);
     const log = logsByDate[dateStr];
     
     const dayData = {
-      day: getDayName(date),
+      day: dayNames[i],
       date: dateStr,
       meals: {
         breakfast: log?.mealsTaken?.breakfast || false,
@@ -687,33 +705,35 @@ async function getWeeklyMealConsistency(motherId) {
  */
 async function getWeeklyMealFrequency(motherId) {
   const { startOfWeek, endOfWeek } = getWeekRange();
-  
-  const logsQuery = await db.collection('motherSelfCareLogs')
-    .where('motherId', '==', motherId)
-    .get();
-  
   const startDate = formatDate(startOfWeek);
   const endDate = formatDate(endOfWeek);
   
-  const weekLogs = logsQuery.docs
-    .map(doc => doc.data())
-    .filter(log => log.date >= startDate && log.date <= endDate);
+  // Query with date range constraints
+  const logsQuery = await db.collection('motherSelfCareLogs')
+    .where('motherId', '==', motherId)
+    .where('date', '>=', startDate)
+    .where('date', '<=', endDate)
+    .get();
   
   // Create map by date
   const logsByDate = {};
-  weekLogs.forEach(log => {
-    logsByDate[log.date] = log;
+  logsQuery.docs.forEach(doc => {
+    const data = doc.data();
+    logsByDate[data.date] = data;
   });
   
-  // Generate 7 days
+  // Generate 7 days - starting from Monday
   const frequencyData = [];
+  const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  
   for (let i = 0; i < 7; i++) {
-    const date = new Date(startOfWeek);
+    // Clone the date to avoid mutation
+    const date = new Date(startOfWeek.getTime());
     date.setDate(date.getDate() + i);
     const dateStr = formatDate(date);
     const log = logsByDate[dateStr];
     
-    // Count meals (excluding snacks for main meal count)
+    // Count meals (all 4 meals)
     const mealCount = log ? [
       log.mealsTaken?.breakfast,
       log.mealsTaken?.lunch,
@@ -722,7 +742,7 @@ async function getWeeklyMealFrequency(motherId) {
     ].filter(Boolean).length : 0;
     
     frequencyData.push({
-      day: getDayName(date),
+      day: dayNames[i],
       date: dateStr,
       count: mealCount,
     });
@@ -736,19 +756,17 @@ async function getWeeklyMealFrequency(motherId) {
  */
 async function getWeeklyNutritionCategories(motherId) {
   const { startOfWeek, endOfWeek } = getWeekRange();
-  
-  const quizzesQuery = await db.collection('motherNutritionQuizResponses')
-    .where('motherId', '==', motherId)
-    .get();
-  
   const startDate = formatDate(startOfWeek);
   const endDate = formatDate(endOfWeek);
   
-  const weekQuizzes = quizzesQuery.docs
-    .map(doc => doc.data())
-    .filter(quiz => quiz.date >= startDate && quiz.date <= endDate);
+  // Query with date range constraints
+  const quizzesQuery = await db.collection('motherNutritionQuizResponses')
+    .where('motherId', '==', motherId)
+    .where('date', '>=', startDate)
+    .where('date', '<=', endDate)
+    .get();
   
-  if (weekQuizzes.length === 0) {
+  if (quizzesQuery.docs.length === 0) {
     return {
       protein: 0,
       vegetables: 0,
@@ -767,20 +785,22 @@ async function getWeeklyNutritionCategories(motherId) {
     hydration: 0,
   };
   
-  weekQuizzes.forEach(quiz => {
-    totals.protein += quiz.responses?.protein || 0;
-    totals.vegetables += quiz.responses?.vegetables || 0;
-    totals.fruits += quiz.responses?.fruits || 0;
-    totals.iron += quiz.responses?.iron || 0;
-    totals.hydration += quiz.responses?.hydration || 0;
+  quizzesQuery.docs.forEach(doc => {
+    const quiz = doc.data();
+    totals.protein += quiz.answers?.protein || 0;
+    totals.vegetables += quiz.answers?.vegetables || 0;
+    totals.fruits += quiz.answers?.fruits || 0;
+    totals.iron += quiz.answers?.ironFoods || 0;
+    totals.hydration += quiz.answers?.hydration || 0;
   });
   
+  const count = quizzesQuery.docs.length;
   return {
-    protein: totals.protein / weekQuizzes.length,
-    vegetables: totals.vegetables / weekQuizzes.length,
-    fruits: totals.fruits / weekQuizzes.length,
-    iron: totals.iron / weekQuizzes.length,
-    hydration: totals.hydration / weekQuizzes.length,
+    protein: totals.protein / count,
+    vegetables: totals.vegetables / count,
+    fruits: totals.fruits / count,
+    iron: totals.iron / count,
+    hydration: totals.hydration / count,
   };
 }
 

@@ -7,7 +7,7 @@ const fs = require('fs');
 const path = require('path');
 const { verifyToken } = require('../middleware/auth');
 const { db, admin } = require('../firebaseAdmin');
-const { adjustCryPredictionWithContext } = require('../utils/adjustCryPredictionWithContext');
+const { adjustCryScoresWithContext } = require('../utils/adjustCryScoresWithContext');
 
 /**
  * Cry Analysis Route
@@ -63,16 +63,17 @@ const upload = multer({
 const FLASK_CRY_ANALYSIS_URL = process.env.FLASK_CRY_ANALYSIS_URL || 'https://pranjal2510-baby-cry-ai.hf.space/analyze-cry';
 const FLASK_TIMEOUT_MS = parseInt(process.env.FLASK_TIMEOUT_MS, 10) || 30000; // 30 seconds default
 
-// Context window for fetching recent activity (6 hours)
-const CONTEXT_WINDOW_HOURS = 6;
+// Context window for fetching recent activity (24 hours for better context)
+const CONTEXT_WINDOW_HOURS = 24;
 
 /**
  * Fetch recent baby activity context for cry prediction adjustment
+ * Includes: feeding logs, sleep logs, reminders, and ALERTS
  * NO INDEXES REQUIRED - uses simple queries and local filtering/sorting
  * 
  * @param {string} parentId - Parent user ID
  * @param {string} babyId - Baby ID (optional, will use first baby if not provided)
- * @returns {Promise<Object>} - { feedingLogs, sleepLogs, reminders, babyId }
+ * @returns {Promise<Object>} - { feedingLogs, sleepLogs, reminders, alerts, babyId, babyType }
  */
 async function fetchRecentContext(parentId, babyId = null) {
   try {
@@ -80,6 +81,7 @@ async function fetchRecentContext(parentId, babyId = null) {
     
     const now = Date.now();
     const contextWindowMs = CONTEXT_WINDOW_HOURS * 60 * 60 * 1000;
+    let babyType = 'full_term'; // Default to full-term
     
     // If no babyId provided, get first baby for this parent
     if (!babyId) {
@@ -89,32 +91,53 @@ async function fetchRecentContext(parentId, babyId = null) {
         .get();
       
       if (!babiesSnapshot.empty) {
-        babyId = babiesSnapshot.docs[0].id;
-        console.log(`   - Auto-detected baby: ${babyId}`);
+        const babyDoc = babiesSnapshot.docs[0];
+        babyId = babyDoc.id;
+        const babyData = babyDoc.data();
+        babyType = babyData.type || babyData.babyType || 'full_term';
+        console.log(`   - Auto-detected baby: ${babyId} (${babyType})`);
+      }
+    } else {
+      // Fetch baby type for provided babyId
+      const babyDoc = await db.collection('babies').doc(babyId).get();
+      if (babyDoc.exists) {
+        const babyData = babyDoc.data();
+        babyType = babyData.type || babyData.babyType || 'full_term';
       }
     }
     
     if (!babyId) {
       console.log('   - No baby found for context');
-      return { feedingLogs: [], sleepLogs: [], reminders: [], babyId: null };
+      return { feedingLogs: [], sleepLogs: [], reminders: [], alerts: [], babyId: null, babyType: 'full_term' };
     }
     
     // Fetch care logs for baby (NO INDEX - single field query, then filter locally)
     const careLogsSnapshot = await db.collection('careLogs')
       .where('babyId', '==', babyId)
-      .limit(50) // Get enough to filter from
+      .limit(100) // Get more to ensure we have enough
       .get();
+    
+    console.log(`   - Total care logs fetched: ${careLogsSnapshot.docs.length}`);
     
     // Process and filter locally - NO INDEX NEEDED
     const allCareLogs = careLogsSnapshot.docs.map(doc => {
       const data = doc.data();
       let timestamp = null;
       
-      if (data.timestamp) {
-        if (data.timestamp.toDate) {
-          timestamp = data.timestamp.toDate().getTime();
-        } else if (typeof data.timestamp === 'string') {
-          timestamp = new Date(data.timestamp).getTime();
+      // Try multiple timestamp field names
+      const timeFields = ['timestamp', 'createdAt', 'created_at', 'loggedAt', 'time', 'date'];
+      for (const field of timeFields) {
+        if (data[field]) {
+          if (data[field].toDate) {
+            timestamp = data[field].toDate().getTime();
+          } else if (data[field]._seconds) {
+            timestamp = data[field]._seconds * 1000;
+          } else if (typeof data[field] === 'string') {
+            timestamp = new Date(data[field]).getTime();
+          } else if (typeof data[field] === 'number') {
+            timestamp = data[field];
+          }
+          if (timestamp && !isNaN(timestamp)) break;
         }
       }
       
@@ -125,27 +148,44 @@ async function fetchRecentContext(parentId, babyId = null) {
       };
     });
     
+    // Log all care logs for debugging
+    console.log(`   - Care logs with timestamps:`);
+    allCareLogs.slice(0, 10).forEach(log => {
+      const timeStr = log._timestampMs ? new Date(log._timestampMs).toISOString() : 'NO_TIMESTAMP';
+      const amtOrDur = log.amount || log.quantity || log.duration || 'N/A';
+      console.log(`     * ${log.type}: ${timeStr} - qty/dur=${amtOrDur}`);
+    });
+    
     // Filter feeding logs locally and sort by timestamp desc
     const feedingLogs = allCareLogs
       .filter(log => log.type === 'feeding' && log._timestampMs && (now - log._timestampMs) <= contextWindowMs)
       .sort((a, b) => b._timestampMs - a._timestampMs)
-      .slice(0, 3);
-    console.log(`   - Feeding logs: ${feedingLogs.length}`);
+      .slice(0, 10); // Get more logs for better context
+    console.log(`   - Feeding logs in window: ${feedingLogs.length}`);
+    if (feedingLogs.length > 0) {
+      const lastFeedTime = new Date(feedingLogs[0]._timestampMs).toISOString();
+      const hoursSince = ((now - feedingLogs[0]._timestampMs) / (60 * 60 * 1000)).toFixed(2);
+      const feedAmt = feedingLogs[0].amount || feedingLogs[0].quantity || 'N/A';
+      console.log(`     * Last feeding: ${lastFeedTime} (${hoursSince}h ago), amount/qty: ${feedAmt}ml`);
+    }
     
     // Filter sleep logs locally and sort by timestamp desc
     const sleepLogs = allCareLogs
       .filter(log => log.type === 'sleep' && log._timestampMs && (now - log._timestampMs) <= contextWindowMs)
       .sort((a, b) => b._timestampMs - a._timestampMs)
-      .slice(0, 3);
-    console.log(`   - Sleep logs: ${sleepLogs.length}`);
+      .slice(0, 5);
+    console.log(`   - Sleep logs in window: ${sleepLogs.length}`);
+    if (sleepLogs.length > 0) {
+      const lastSleepTime = new Date(sleepLogs[0]._timestampMs).toISOString();
+      console.log(`     * Last sleep: ${lastSleepTime}, duration: ${sleepLogs[0].duration || 'N/A'}min`);
+    }
     
     // Fetch reminders (NO INDEX - single field query, then filter locally)
     const remindersSnapshot = await db.collection('reminders')
       .where('parentId', '==', parentId)
-      .limit(20) // Get enough to filter from
+      .limit(20)
       .get();
     
-    // Filter and sort reminders locally - NO INDEX NEEDED
     const reminders = remindersSnapshot.docs
       .map(doc => {
         const data = doc.data();
@@ -167,14 +207,41 @@ async function fetchRecentContext(parentId, babyId = null) {
       })
       .filter(r => ['pending', 'sent'].includes(r.status))
       .sort((a, b) => (b._scheduledForMs || 0) - (a._scheduledForMs || 0))
-      .slice(0, 2);
+      .slice(0, 5);
     console.log(`   - Reminders: ${reminders.length}`);
     
-    return { feedingLogs, sleepLogs, reminders, babyId };
+    // ============================================
+    // FETCH ALERTS - Critical for score adjustment
+    // ============================================
+    let alerts = [];
+    try {
+      const alertsSnapshot = await db.collection('alerts')
+        .where('babyId', '==', babyId)
+        .limit(20)
+        .get();
+      
+      alerts = alertsSnapshot.docs
+        .map(doc => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            ...data,
+          };
+        })
+        .filter(a => a.status === 'active' || a.isActive === true);
+      
+      console.log(`   - Active alerts: ${alerts.length}`);
+      alerts.forEach(alert => {
+        console.log(`     * ${alert.severity || 'UNKNOWN'}: ${alert.type || alert.title || 'Unknown alert'}`);
+      });
+    } catch (alertError) {
+      console.log(`   - Could not fetch alerts: ${alertError.message}`);
+    }
+    
+    return { feedingLogs, sleepLogs, reminders, alerts, babyId, babyType };
   } catch (error) {
     console.error('⚠️ [CryContext] Error fetching context:', error.message);
-    // Return empty context on error - don't fail the analysis
-    return { feedingLogs: [], sleepLogs: [], reminders: [], babyId };
+    return { feedingLogs: [], sleepLogs: [], reminders: [], alerts: [], babyId: null, babyType: 'full_term' };
   }
 }
 
@@ -349,21 +416,24 @@ router.post('/', verifyToken, upload.single('audio'), async (req, res) => {
     const babyId = req.body.babyId || req.query.babyId || null;
     const parentId = req.user.uid;
     
-    // Fetch recent context (feeding, sleep logs, reminders)
+    // Fetch recent context (feeding, sleep logs, reminders, alerts, baby type)
     const recentContext = await fetchRecentContext(parentId, babyId);
     
-    // Apply context-aware adjustment
-    const adjustmentResult = adjustCryPredictionWithContext(rawAiScores, {
+    // Apply context-aware adjustment using new utility
+    const adjustmentResult = adjustCryScoresWithContext({
+      aiScores: rawAiScores,
       feedingLogs: recentContext.feedingLogs,
       sleepLogs: recentContext.sleepLogs,
       reminders: recentContext.reminders,
+      alerts: recentContext.alerts,  // NEW: Include alerts
+      babyType: recentContext.babyType,
     });
     
     // Log adjusted scores
     console.log(`📊 [CryAnalysis] [${requestId}] ========== ADJUSTED SCORES ==========`);
-    console.log(`📊 [CryAnalysis] [${requestId}] Final Label: ${adjustmentResult.finalLabel} (${(adjustmentResult.confidence * 100).toFixed(1)}%)`);
+    console.log(`📊 [CryAnalysis] [${requestId}] Final Label: ${adjustmentResult.final_label} (${(adjustmentResult.confidence * 100).toFixed(1)}%)`);
     
-    const adjustedProbabilities = Object.entries(adjustmentResult.adjustedScores).sort(([, a], [, b]) => b - a);
+    const adjustedProbabilities = Object.entries(adjustmentResult.adjusted_scores).sort(([, a], [, b]) => b - a);
     if (adjustedProbabilities.length > 0) {
       console.log(`📊 [CryAnalysis] [${requestId}] Adjusted Probabilities:`);
       adjustedProbabilities.forEach(([cause, prob]) => {
@@ -382,6 +452,12 @@ router.post('/', verifyToken, upload.single('audio'), async (req, res) => {
     console.log(`📊 [CryAnalysis] [${requestId}] =====================================`);
 
     const totalDuration = Date.now() - startTime;
+    
+    // Get top 3 scores for frontend display
+    const top3Scores = Object.entries(adjustmentResult.adjusted_scores)
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 3)
+      .map(([label, score]) => ({ label, score }));
 
     // Return enhanced response with both raw and adjusted scores
     return res.status(200).json({
@@ -389,12 +465,13 @@ router.post('/', verifyToken, upload.single('audio'), async (req, res) => {
       data: {
         // Original Flask data (for backward compatibility)
         ...flaskData,
-        // Context-aware adjusted data
-        raw_ai_scores: rawAiScores,
-        adjusted_scores: adjustmentResult.adjustedScores,
-        final_label: adjustmentResult.finalLabel,
+        // Context-aware adjusted data (new structure)
+        raw_ai_scores: adjustmentResult.raw_scores,
+        adjusted_scores: adjustmentResult.adjusted_scores,
+        final_label: adjustmentResult.final_label,
         confidence: adjustmentResult.confidence,
         explanation: adjustmentResult.explanation,
+        top_3_scores: top3Scores,
       },
       meta: {
         processingTimeMs: totalDuration,
@@ -402,6 +479,7 @@ router.post('/', verifyToken, upload.single('audio'), async (req, res) => {
         originalFilename: req.file.originalname,
         contextUsed: {
           babyId: recentContext.babyId,
+          babyType: recentContext.babyType,
           feedingLogsCount: recentContext.feedingLogs.length,
           sleepLogsCount: recentContext.sleepLogs.length,
           remindersCount: recentContext.reminders.length,

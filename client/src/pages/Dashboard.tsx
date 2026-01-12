@@ -6,6 +6,12 @@ import { registerFCMToken, setupFCMListener } from '@/services/fcm';
 import reminderEventEmitter from '@/services/reminderEvents';
 import { Link } from 'react-router-dom';
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
   Baby,
   Heart,
   Moon,
@@ -28,7 +34,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
-import NutritionAwarenessCard from '@/components/dashboard/NutritionAwarenessCard';
 import RuleExplanationModal from '@/components/dashboard/RuleExplanationModal';
 import MoodCheckInWidget from '@/components/dashboard/MoodCheckInWidget';
 import QuickPrescriptionModal from '@/components/prescription/QuickPrescriptionModal';
@@ -610,13 +615,6 @@ const Dashboard = () => {
               </Button>
             </div>
           </div>
-
-          {/* User Settings Section */}
-          {showUserSettings && (
-            <div className="mb-8 animate-in fade-in-50 duration-300">
-              <UserSettings />
-            </div>
-          )}
 
           <div className="grid lg:grid-cols-3 gap-6">
             {/* Main Content */}
@@ -1260,9 +1258,6 @@ const Dashboard = () => {
                 </CardContent>
               </Card>
 
-              {/* Nutrition Awareness Card (India-First Diet Helper) */}
-              <NutritionAwarenessCard babyId={babyId || undefined} />
-
               {/* Emergency Support */}
               <Card className="border-2 border-destructive/30 bg-destructive/5">
                 <CardHeader>
@@ -1348,6 +1343,19 @@ const Dashboard = () => {
             fetchLogs();
           }}
         />
+
+        {/* User Settings Modal */}
+        <Dialog open={showUserSettings} onOpenChange={setShowUserSettings}>
+          <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Settings className="w-5 h-5" />
+                Notification Settings
+              </DialogTitle>
+            </DialogHeader>
+            <UserSettings />
+          </DialogContent>
+        </Dialog>
       </main>
     </div>
     </DashboardLayout>

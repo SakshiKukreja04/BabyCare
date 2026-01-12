@@ -14,3 +14,9 @@ client/dist/
 *.log
 .env.local
 
+.md 
+# Local environment variables file
+.env
+
+CHARTS_FIX_SUMMARY.md
+*.md

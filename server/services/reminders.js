@@ -44,7 +44,7 @@ async function generateRemindersFor24Hours(babyId, parentId, medicine) {
             frequency: medicine.frequency,
             dose_time: doseTime, // Store the time (HH:mm format)
             scheduled_for: admin.firestore.Timestamp.fromDate(reminderDate),
-            channels: ['web', 'whatsapp'], // Default: send to both
+            channels: ['web', 'sms'], // Default: send to web (FCM) and SMS
             status: 'pending', // pending, sent, failed, dismissed
             attempt_count: 0,
             last_attempt: null,

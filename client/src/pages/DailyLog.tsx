@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { getBabiesByParent } from '@/lib/firestore';
-import { careLogsApi } from '@/lib/api';
+import { careLogsApi, weightTrackingApi } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -14,6 +14,7 @@ import {
   Minus,
   Upload,
   Image as ImageIcon,
+  TrendingUp,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -47,6 +48,10 @@ const DailyLog = () => {
     given: false,
     notes: '',
   });
+  const [weightData, setWeightData] = useState({
+    weight: '',
+  });
+  const [showWeightInput, setShowWeightInput] = useState(false);
   const [showPrescriptionModal, setShowPrescriptionModal] = useState(false);
   const [prescriptionImage, setPrescriptionImage] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -101,6 +106,19 @@ const DailyLog = () => {
       }
 
       const result = await careLogsApi.create(logData);
+      
+      // If weight was entered, save it
+      if (weightData.weight) {
+        try {
+          await weightTrackingApi.createOrUpdateWeight(
+            babyId,
+            Number(weightData.weight)
+          );
+        } catch (weightError) {
+          console.error('Error saving weight:', weightError);
+          // Don't fail the entire request if weight save fails
+        }
+      }
       
       toast({
         title: 'Log saved! ✨',
@@ -429,6 +447,47 @@ const DailyLog = () => {
                   </div>
                 </div>
               )}
+
+              {/* Weekly Weight Input Section */}
+              <div className="space-y-4 p-4 bg-secondary/30 rounded-2xl border border-border">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <TrendingUp className="w-5 h-5 text-healthcare-mint" />
+                    <Label className="font-semibold">Weekly Baby Weight (kg)</Label>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowWeightInput(!showWeightInput)}
+                  >
+                    {showWeightInput ? 'Cancel' : 'Add Weight'}
+                  </Button>
+                </div>
+
+                {showWeightInput && (
+                  <div className="space-y-3">
+                    <div>
+                      <Label htmlFor="weight-value" className="text-sm text-muted-foreground">
+                        Weight (kg)
+                      </Label>
+                      <Input
+                        id="weight-value"
+                        type="number"
+                        step="0.1"
+                        min="0"
+                        placeholder="e.g., 5.2"
+                        value={weightData.weight}
+                        onChange={(e) => setWeightData({ ...weightData, weight: e.target.value })}
+                        className="h-12 bg-background"
+                      />
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      This weight entry will be recorded for this week and visible on the Baby Growth Awareness chart.
+                    </p>
+                  </div>
+                )}
+              </div>
 
               {/* Submit Button */}
               <Button

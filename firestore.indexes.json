@@ -1,0 +1,46 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "motherSelfCareLogs",
+      "queryScope": "Collection",
+      "fields": [
+        {
+          "fieldPath": "motherId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "date",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "motherNutritionQuizResponses",
+      "queryScope": "Collection",
+      "fields": [
+        {
+          "fieldPath": "motherId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "date",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "babyFeedingLogs",
+      "queryScope": "Collection",
+      "fields": [
+        {
+          "fieldPath": "babyId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "date",
+          "order": "ASCENDING"
+        }
+      ]
+    }
+  ]
+}

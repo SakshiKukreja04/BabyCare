@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Send, Bot, User, AlertCircle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -14,6 +14,111 @@ interface Message {
   role: 'user' | 'assistant';
   content: string;
   timestamp: Date;
+}
+
+/**
+ * Render markdown-formatted text as React elements
+ * Supports: **bold**, *italic*, bullet points, headings, emojis
+ */
+function renderFormattedMessage(content: string): React.ReactNode {
+  // Split by lines first
+  const lines = content.split('\n');
+  
+  const elements: React.ReactNode[] = [];
+  
+  lines.forEach((line, lineIndex) => {
+    // Check for heading lines (═══ or ━━━ dividers)
+    if (line.match(/^[═━─]{3,}$/)) {
+      elements.push(
+        <hr key={`hr-${lineIndex}`} className="my-2 border-current opacity-20" />
+      );
+      return;
+    }
+    
+    // Check for section headers (lines with ** at start and end)
+    const headerMatch = line.match(/^\*\*(.+)\*\*:?\s*$/);
+    if (headerMatch) {
+      elements.push(
+        <h3 key={`h-${lineIndex}`} className="font-bold text-sm mt-3 mb-1">
+          {headerMatch[1]}
+        </h3>
+      );
+      return;
+    }
+    
+    // Process inline formatting for the line
+    const formattedLine = formatInlineText(line, lineIndex);
+    
+    // Check if it's a bullet point
+    if (line.trim().startsWith('•') || line.trim().startsWith('-') || line.trim().match(/^\d+\./)) {
+      const bulletContent = line.replace(/^\s*[•\-]\s*/, '').replace(/^\s*\d+\.\s*/, '');
+      elements.push(
+        <div key={`bullet-${lineIndex}`} className="flex gap-2 ml-2 my-0.5">
+          <span className="text-primary">•</span>
+          <span>{formatInlineText(bulletContent, lineIndex)}</span>
+        </div>
+      );
+    } else if (line.trim() === '') {
+      // Empty line - add spacing
+      elements.push(<div key={`space-${lineIndex}`} className="h-2" />);
+    } else {
+      // Regular paragraph
+      elements.push(
+        <p key={`p-${lineIndex}`} className="my-0.5">
+          {formattedLine}
+        </p>
+      );
+    }
+  });
+  
+  return <>{elements}</>;
+}
+
+/**
+ * Format inline text (bold, italic, etc.)
+ */
+function formatInlineText(text: string, keyPrefix: number): React.ReactNode {
+  // Split by markdown patterns while keeping the patterns
+  const parts: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let key = 0;
+  
+  // Regex to match **bold** and *italic* patterns
+  const regex = /\*\*([^*]+)\*\*|\*([^*]+)\*/g;
+  let match;
+  
+  while ((match = regex.exec(text)) !== null) {
+    // Add text before the match
+    if (match.index > lastIndex) {
+      parts.push(text.substring(lastIndex, match.index));
+    }
+    
+    // Add the formatted text
+    if (match[1]) {
+      // Bold text
+      parts.push(
+        <strong key={`${keyPrefix}-b-${key++}`} className="font-semibold">
+          {match[1]}
+        </strong>
+      );
+    } else if (match[2]) {
+      // Italic text
+      parts.push(
+        <em key={`${keyPrefix}-i-${key++}`} className="italic">
+          {match[2]}
+        </em>
+      );
+    }
+    
+    lastIndex = match.index + match[0].length;
+  }
+  
+  // Add remaining text
+  if (lastIndex < text.length) {
+    parts.push(text.substring(lastIndex));
+  }
+  
+  return parts.length > 0 ? parts : text;
 }
 
 const Chatbot = () => {
@@ -142,11 +247,16 @@ const Chatbot = () => {
                     className={`max-w-[80%] rounded-2xl px-4 py-3 ${
                       message.role === 'user'
                         ? 'bg-primary text-primary-foreground'
-                        : 'bg-muted text-muted-foreground'
+                        : 'bg-muted text-foreground'
                     } shadow-soft`}
                   >
-                    <p className="text-sm whitespace-pre-wrap">{message.content}</p>
-                    <p className="text-xs mt-1 opacity-70">
+                    <div className="text-sm">
+                      {message.role === 'assistant' 
+                        ? renderFormattedMessage(message.content)
+                        : <p className="whitespace-pre-wrap">{message.content}</p>
+                      }
+                    </div>
+                    <p className="text-xs mt-2 opacity-70">
                       {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </p>
                   </div>

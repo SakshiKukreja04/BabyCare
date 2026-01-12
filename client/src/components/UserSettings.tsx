@@ -18,7 +18,7 @@ import {
  * User Settings Component
  * Allows users to:
  * - Enable/disable web push notifications
- * - Add phone number for WhatsApp notifications
+ * - Add phone number for SMS notifications (via Twilio)
  * - View notification settings
  */
 const UserSettings = () => {
@@ -206,13 +206,13 @@ const UserSettings = () => {
         </CardContent>
       </Card>
 
-      {/* WhatsApp Notifications Card */}
+      {/* SMS Notifications Card */}
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle className="flex items-center gap-2">
               <Phone className="w-5 h-5" />
-              WhatsApp Notifications
+              SMS Notifications
             </CardTitle>
             {notificationSettings.phoneNumber && (
               <Badge className="bg-green-100 text-green-800">Enabled ✓</Badge>
@@ -224,7 +224,7 @@ const UserSettings = () => {
             <div>
               <Label htmlFor="phone">Phone Number</Label>
               <p className="text-xs text-gray-500 mb-2">
-                Include country code (e.g., +1 for USA, +44 for UK)
+                Include country code (e.g., +1 for USA, +91 for India)
               </p>
               <Input
                 id="phone"
@@ -236,7 +236,7 @@ const UserSettings = () => {
                 className="font-mono"
               />
               <p className="text-xs text-gray-500 mt-2">
-                Format: +[country code][number] (e.g., +14155552671)
+                Format: +[country code][number] (e.g., +919876543210)
               </p>
             </div>
 
@@ -253,8 +253,7 @@ const UserSettings = () => {
             </Button>
 
             <p className="text-xs text-gray-600">
-              Medicine reminders will be sent to this WhatsApp number. Make sure the
-              number is registered with WhatsApp.
+              Medicine reminders will be sent via SMS to this number. Ensure you have SMS enabled on your phone.
             </p>
           </form>
         </CardContent>
@@ -276,7 +275,7 @@ const UserSettings = () => {
               )}
             </div>
             <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-              <span className="font-medium">WhatsApp Notifications</span>
+              <span className="font-medium">SMS Notifications</span>
               {notificationSettings.phoneNumber ? (
                 <Badge className="bg-green-100 text-green-800">Ready ✓</Badge>
               ) : (

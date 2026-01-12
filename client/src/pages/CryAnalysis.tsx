@@ -31,6 +31,7 @@ interface CryAnalysisResult {
   final_label?: string;
   explanation?: string[];
   top_reason?: string;
+  top_3_scores?: Array<{ label: string; score: number }>;
   [key: string]: any;  // Allow additional fields
 }
 
@@ -192,6 +193,20 @@ export default function CryAnalysis() {
       }
       
       console.log('🎤 [CryAnalysis] Normalized result:', normalizedResult);
+      
+      // Log adjusted scores details
+      if (normalizedResult.data) {
+        console.log('📊 [CryAnalysis] ========== SCORE DETAILS ==========');
+        console.log('📊 [CryAnalysis] Raw AI Scores:', normalizedResult.data.raw_ai_scores);
+        console.log('📊 [CryAnalysis] Adjusted Scores:', normalizedResult.data.adjusted_scores);
+        console.log('📊 [CryAnalysis] Final Label:', normalizedResult.data.final_label);
+        console.log('📊 [CryAnalysis] Confidence:', normalizedResult.data.confidence);
+        console.log('📊 [CryAnalysis] Top 3 Scores:', normalizedResult.data.top_3_scores);
+        console.log('📊 [CryAnalysis] Explanations:', normalizedResult.data.explanation);
+        console.log('📊 [CryAnalysis] Context Used:', normalizedResult.meta?.contextUsed);
+        console.log('📊 [CryAnalysis] ===================================');
+      }
+      
       setResult(normalizedResult);
     } catch (err: any) {
       console.error('Cry analysis error:', err);
@@ -235,25 +250,31 @@ export default function CryAnalysis() {
     
     // Prefer adjusted_scores if available (context-aware)
     if (data.adjusted_scores && Object.keys(data.adjusted_scores).length > 0) {
-      return Object.entries(data.adjusted_scores)
+      const probs = Object.entries(data.adjusted_scores)
         .map(([cause, probability]) => ({ cause, probability: probability as number }))
         .sort((a, b) => b.probability - a.probability);
+      console.log('🔍 [getProbabilities] Using adjusted_scores:', probs);
+      return probs;
     }
     
     // Fallback to raw scores
     const excluded = ['top_reason', 'prediction', 'label', 'confidence', 'score', 'recommendations', 
-                      'raw_ai_scores', 'adjusted_scores', 'final_label', 'explanation', 'cry_detected'];
+                      'raw_ai_scores', 'adjusted_scores', 'final_label', 'explanation', 'cry_detected', 'top_3_scores'];
     
-    return Object.entries(data)
+    const probs = Object.entries(data)
       .filter(([key, value]) => !excluded.includes(key) && typeof value === 'number')
       .map(([cause, probability]) => ({ cause, probability: probability as number }))
       .sort((a, b) => b.probability - a.probability);
+    console.log('🔍 [getProbabilities] Using fallback scores:', probs);
+    return probs;
   };
 
   // Get top reason - prefer final_label from context-aware adjustment
   const getTopReason = () => {
     if (!result?.data) return null;
-    return result.data.final_label || result.data.top_reason || result.data.prediction || result.data.label || null;
+    const topReason = result.data.final_label || result.data.top_reason || result.data.prediction || result.data.label || null;
+    console.log('🔍 [getTopReason]:', topReason);
+    return topReason;
   };
 
   // Get highest confidence - prefer context-aware confidence
@@ -262,23 +283,45 @@ export default function CryAnalysis() {
     
     // Prefer adjusted confidence
     if (result.data.confidence !== undefined) {
+      console.log('🔍 [getHighestConfidence]:', result.data.confidence);
       return result.data.confidence;
     }
     
     const probs = getProbabilities();
     if (probs.length === 0) return null;
+    console.log('🔍 [getHighestConfidence] fallback:', probs[0].probability);
     return probs[0].probability;
+  };
+
+  // Get top 3 scores - prefer pre-computed from backend
+  const getTop3Scores = () => {
+    if (!result?.data) return [];
+    
+    // Use pre-computed top_3_scores if available
+    if (result.data.top_3_scores && result.data.top_3_scores.length > 0) {
+      console.log('🔍 [getTop3Scores] Using pre-computed:', result.data.top_3_scores);
+      return result.data.top_3_scores;
+    }
+    
+    // Fallback: compute from probabilities
+    const probs = getProbabilities();
+    const top3 = probs.slice(0, 3).map(p => ({ label: p.cause, score: p.probability }));
+    console.log('🔍 [getTop3Scores] Computed from probs:', top3);
+    return top3;
   };
 
   // Get explanations from context-aware adjustment
   const getExplanations = () => {
     if (!result?.data?.explanation) return [];
+    console.log('🔍 [getExplanations]:', result.data.explanation);
     return result.data.explanation;
   };
 
   // Check if context was used for adjustment
   const hasContextAdjustment = () => {
-    return result?.data?.adjusted_scores && result?.data?.explanation && result.data.explanation.length > 0;
+    const hasContext = !!(result?.data?.adjusted_scores && result?.data?.explanation && result.data.explanation.length > 0);
+    console.log('🔍 [hasContextAdjustment]:', hasContext);
+    return hasContext;
   };
 
   return (
@@ -456,13 +499,66 @@ export default function CryAnalysis() {
                     </p>
                   </div>
 
-                  {/* Other Possible Reasons - Horizontal Cards Below */}
-                  {getProbabilities().length > 1 && (
+                  {/* Top 3 Scores - Prominent Display */}
+                  {getTop3Scores().length > 0 && (
+                    <div className="mt-6 pt-6 border-t">
+                      <p className="text-sm font-medium text-center mb-4 text-gray-600">Top 3 Predicted Causes</p>
+                      <div className="grid grid-cols-3 gap-4">
+                        {getTop3Scores().map((item, index) => {
+                          const causeInfo = getCauseInfo(item.label);
+                          const isTop = index === 0;
+                          return (
+                            <div 
+                              key={item.label}
+                              className={`
+                                relative p-4 rounded-xl text-center transition-all
+                                ${isTop 
+                                  ? 'bg-gradient-to-br from-amber-50 to-yellow-100 border-2 border-amber-300 shadow-lg transform scale-105' 
+                                  : 'bg-gray-50 dark:bg-gray-800 border border-gray-200'
+                                }
+                              `}
+                            >
+                              {isTop && (
+                                <div className="absolute -top-2 left-1/2 -translate-x-1/2">
+                                  <Badge className="bg-amber-500 text-white text-[10px] px-2">
+                                    #1
+                                  </Badge>
+                                </div>
+                              )}
+                              {!isTop && (
+                                <div className="absolute -top-2 left-1/2 -translate-x-1/2">
+                                  <Badge variant="secondary" className="text-[10px] px-2">
+                                    #{index + 1}
+                                  </Badge>
+                                </div>
+                              )}
+                              <span className="text-3xl block mb-2">{causeInfo.icon}</span>
+                              <p className={`font-semibold ${isTop ? 'text-amber-800' : 'text-gray-700 dark:text-gray-300'}`}>
+                                {causeInfo.label}
+                              </p>
+                              <p className={`text-2xl font-bold mt-1 ${isTop ? 'text-amber-600' : 'text-primary'}`}>
+                                {(item.score * 100).toFixed(1)}%
+                              </p>
+                              <div className="mt-2 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                                <div 
+                                  className={`h-full ${isTop ? 'bg-amber-500' : causeInfo.color}`}
+                                  style={{ width: `${item.score * 100}%` }}
+                                />
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Other Possible Reasons - Horizontal Cards Below (beyond top 3) */}
+                  {getProbabilities().length > 3 && (
                     <div className="mt-6 pt-6 border-t">
                       <p className="text-sm text-muted-foreground text-center mb-4">Other possible reasons</p>
                       <div className="flex flex-wrap justify-center gap-3">
                         {getProbabilities()
-                          .filter(({ cause }) => cause.toLowerCase() !== (getTopReason() || '').toLowerCase())
+                          .slice(3) // Skip top 3 (already displayed above)
                           .map(({ cause, probability }) => {
                             const causeInfo = getCauseInfo(cause);
                             const percentage = probability * 100;

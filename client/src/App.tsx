@@ -16,6 +16,7 @@ import Chatbot from "./pages/Chatbot";
 import Nutrition from "./pages/Nutrition";
 import Analytics from "./pages/Analytics";
 import CryAnalysis from "./pages/CryAnalysis";
+import Profile from "./pages/Profile";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -85,6 +86,14 @@ const App = () => (
                 element={
                   <RequireAuth>
                     <CryAnalysis />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/profile"
+                element={
+                  <RequireAuth>
+                    <Profile />
                   </RequireAuth>
                 }
               />

@@ -8,7 +8,7 @@ import { auth } from './firebase';
  * Handles all HTTP requests to the Node.js backend
  */
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:5000';
 
 /**
  * Get Firebase ID token for authentication
@@ -80,6 +80,25 @@ export const careLogsApi = {
       `/api/care-logs?babyId=${babyId}&limit=${limit}`
     );
   },
+
+  /**
+   * Get monthly analytics for a baby
+   */
+  async getMonthlyAnalytics(babyId: string, month?: number, year?: number) {
+    const params = new URLSearchParams({ babyId });
+    if (month !== undefined) params.append('month', month.toString());
+    if (year !== undefined) params.append('year', year.toString());
+    return apiRequest<{
+      month: string;
+      monthNumber: number;
+      year: number;
+      totalDaysInMonth: number;
+      daysWithLogs: number;
+      missedDays: number;
+      consistency: number;
+      consistencyLevel: string;
+    }>(`/api/care-logs/analytics/monthly?${params.toString()}`);
+  },
 };
 
 /**
@@ -117,6 +136,25 @@ export const alertsApi = {
         body: JSON.stringify({ resolved }),
       }
     );
+  },
+
+  /**
+   * Get alert history for a month
+   */
+  async getMonthlyHistory(babyId: string, month: number, year: number) {
+    return apiRequest<{
+      babyId: string;
+      month: number;
+      year: number;
+      startDate: string;
+      endDate: string;
+      alerts: {
+        low: number;
+        medium: number;
+        high: number;
+        total: number;
+      };
+    }>(`/api/care-logs/alerts/monthly?babyId=${babyId}&month=${month}&year=${year}`);
   },
 };
 
@@ -287,19 +325,67 @@ export const prescriptionsApi = {
 
 /**
  * Cry Analysis API
+ * Calls the backend which applies context-aware score adjustment
  */
 export const cryAnalysisApi = {
   /**
    * Analyze baby cry audio
+   * Goes through backend for context-aware adjustment (feeding, sleep, reminders)
    * @param audioFile - WAV or MP3 audio file
+   * @param babyId - Optional baby ID for context
    */
-  async analyze(audioFile: File) {
+  async analyze(audioFile: File, babyId?: string) {
+    const formData = new FormData();
+    formData.append('audio', audioFile);
+    if (babyId) {
+      formData.append('babyId', babyId);
+    }
+
+    // Get auth token for backend request
+    const token = await getAuthToken();
+    
+    const backendUrl = `${API_BASE_URL}/api/cry-analysis`;
+    console.log('🎤 [CryAnalysisAPI] Calling backend:', backendUrl);
+    console.log('🎤 [CryAnalysisAPI] API_BASE_URL:', API_BASE_URL);
+    console.log('🎤 [CryAnalysisAPI] Token length:', token?.length || 0);
+
+    // Call backend route which:
+    // 1. Forwards to Flask AI service
+    // 2. Fetches recent baby context (feeding, sleep, reminders)
+    // 3. Applies deterministic score adjustments
+    // 4. Returns adjusted scores + top 3 + explanations
+    const response = await fetch(backendUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        // Note: Don't set Content-Type for FormData - browser sets it with boundary
+      },
+      body: formData,
+    });
+    
+    console.log('🎤 [CryAnalysisAPI] Response status:', response.status);
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ message: 'Request failed' }));
+      console.error('🎤 [CryAnalysisAPI] Error:', error);
+      throw new Error(error.message || `HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    console.log('🎤 [CryAnalysisAPI] Response data:', data);
+    return data;
+  },
+
+  /**
+   * Analyze directly via Flask (bypass context adjustment)
+   * Use this for testing or when context is not needed
+   */
+  async analyzeDirect(audioFile: File) {
     const formData = new FormData();
     formData.append('audio', audioFile);
 
     const response = await fetch('https://pranjal2510-baby-cry-ai.hf.space/analyze-cry', {
       method: 'POST',
-      // Note: Don't set Content-Type for FormData - browser sets it with boundary
       body: formData,
     });
 
@@ -439,6 +525,24 @@ export const nutritionMotherApi = {
           completionRate: number;
         };
         nutritionScoreChart: Array<{ day: string; date: string; score: number | null }>;
+        mealConsistency: Array<{
+          day: string;
+          date: string;
+          meals: {
+            breakfast: boolean;
+            lunch: boolean;
+            dinner: boolean;
+            snacks: boolean;
+          };
+        }>;
+        mealFrequencyChart: Array<{ day: string; date: string; count: number }>;
+        nutritionCategories: {
+          hydration: number;
+          protein: number;
+          vegetables: number;
+          fruits: number;
+          iron: number;
+        };
       };
       thisMonth: {
         averageScore: number | null;
@@ -562,3 +666,51 @@ export const nutritionMotherApi = {
   },
 };
 
+/**
+ * Weight Tracking API
+ */
+export const weightTrackingApi = {
+  /**
+   * Create or update a weekly weight entry
+   */
+  async createOrUpdateWeight(babyId: string, weight: number) {
+    return apiRequest<{
+      id: string;
+      babyId: string;
+      weight: number;
+      weekStart: string;
+      weekEnd: string;
+      timestamp: string;
+    }>('/api/weight', {
+      method: 'POST',
+      body: JSON.stringify({ babyId, weight }),
+    });
+  },
+
+  /**
+   * Get weight entries for a baby
+   */
+  async getWeightEntries(babyId: string, limit = 100) {
+    return apiRequest<{ weightEntries: Array<{ id: string; weight: number; date: string; timestamp: string }>; count: number }>(
+      `/api/weight?babyId=${babyId}&limit=${limit}`
+    );
+  },
+
+  /**
+   * Get weight entries by month
+   */
+  async getWeightEntriesByMonth(babyId: string, month: number, year: number) {
+    return apiRequest<{ weightEntries: Array<{ id: string; weight: number; date: string; timestamp: string }>; count: number }>(
+      `/api/weight/month?babyId=${babyId}&month=${month}&year=${year}`
+    );
+  },
+  /**
+   * Admin: Fix weight dates
+   */
+  async fixWeightDates(babyId: string) {
+    return apiRequest<{ message: string; updates: Array<any> }>('/api/weight/admin/fix-dates', {
+      method: 'POST',
+      body: JSON.stringify({ babyId }),
+    });
+  },
+};

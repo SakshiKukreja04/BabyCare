@@ -23,6 +23,7 @@
     "form-data": "^4.0.5",
     "multer": "^2.0.2",
     "node-cron": "^3.0.2",
-    "tesseract.js": "^7.0.0"
+    "tesseract.js": "^7.0.0",
+    "twilio": "^4.23.0"
   }
 }
