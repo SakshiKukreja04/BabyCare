@@ -84,19 +84,19 @@ export async function exportFeedbackLogsToCSV(): Promise<{
       };
     } else {
       // Handle JSON response (for empty data case)
-      const data = await response.json();
+    const data = await response.json();
       if (data.success === false) {
-        return {
-          success: false,
-          error: data.message || 'Export failed',
-        };
-      }
       return {
-        success: true,
-        totalLogs: data.data?.totalLogs || 0,
-        dateRange: data.data?.dateRange,
-        message: data.message,
+        success: false,
+        error: data.message || 'Export failed',
       };
+    }
+    return {
+      success: true,
+        totalLogs: data.data?.totalLogs || 0,
+      dateRange: data.data?.dateRange,
+      message: data.message,
+    };
     }
   } catch (error) {
     console.error('Error exporting feedback logs:', error);
