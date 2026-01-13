@@ -28,11 +28,32 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID,
 };
 
+// Log Firebase config for debugging (without sensitive data)
+// eslint-disable-next-line no-console
+console.log("🔥 Firebase Config:", {
+  authDomain: firebaseConfig.authDomain,
+  projectId: firebaseConfig.projectId,
+  currentURL: window.location.href,
+});
+
 // Avoid re-initializing during hot reloads.
 const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
 
 const auth = getAuth(app);
+// Configure auth settings
+auth.languageCode = 'en';
+// Set the redirect URL explicitly to handle localhost properly
+auth.settings.appVerificationDisabledForTesting = false;
+
 const googleProvider = new GoogleAuthProvider();
+// Add scopes if needed
+googleProvider.addScope('profile');
+googleProvider.addScope('email');
+// Set custom parameters for Google OAuth
+googleProvider.setCustomParameters({
+  prompt: 'select_account'
+});
+
 const db = getFirestore(app);
 
 export { app, auth, googleProvider, db };

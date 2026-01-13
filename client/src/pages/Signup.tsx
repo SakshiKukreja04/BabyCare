@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, Mail, Lock, User, Baby, Heart, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -11,7 +11,7 @@ import { useAuth } from '@/contexts/AuthContext';
 const Signup = () => {
   const { t } = useLanguage();
   const navigate = useNavigate();
-  const { loginWithGoogle, signupWithEmail } = useAuth();
+  const { loginWithGoogle, signupWithEmail, user, loading } = useAuth();
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [formData, setFormData] = useState({
@@ -47,8 +47,6 @@ const Signup = () => {
         title: "Welcome to BabyCare! 💙",
         description: "Your account has been created successfully.",
       });
-      // After successful signup, guide user to complete baby profile
-      navigate('/baby-profile');
     } catch (error) {
       toast({
         title: "Signup failed",
@@ -68,8 +66,6 @@ const Signup = () => {
         title: "Welcome to BabyCare! 💙",
         description: "Account created with Google.",
       });
-      // For Google sign-up, also send user to baby profile setup
-      navigate('/baby-profile');
     } catch (error) {
       toast({
         title: "Google Sign-up failed",
@@ -80,6 +76,13 @@ const Signup = () => {
       setIsLoading(false);
     }
   };
+
+  // After any successful auth (including Google redirect), send user to baby profile
+  useEffect(() => {
+    if (!loading && user) {
+      navigate('/baby-profile');
+    }
+  }, [loading, user, navigate]);
 
   return (
     <div className="min-h-screen flex gradient-hero">

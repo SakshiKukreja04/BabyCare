@@ -2,12 +2,12 @@ import { ReactNode, createContext, useContext, useEffect, useRef, useState } fro
 import {
   User,
   onAuthStateChanged,
-  signInWithPopup,
   signOut,
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   updateProfile,
   signInWithRedirect,
+  signInWithPopup,
   getRedirectResult,
 } from "firebase/auth";
 import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
@@ -46,19 +46,42 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const loginWithGoogle = async () => {
     try {
-      const result = await signInWithPopup(auth, googleProvider);
-      const firebaseUser = result.user;
-      if (firebaseUser) {
-        await persistUserProfile(firebaseUser);
-        setUser(firebaseUser);
-      }
-      return firebaseUser;
-    } catch (error) {
-      // Popup errors can occur due to COOP/window.close policies; fallback to redirect.
+      // Try popup first (works better without Firebase Hosting)
       // eslint-disable-next-line no-console
-      console.warn("Google popup failed, falling back to redirect:", error);
-      await signInWithRedirect(auth, googleProvider);
-      return null;
+      console.log("🚀 Attempting Google sign-in with popup...");
+      try {
+        const result = await signInWithPopup(auth, googleProvider);
+        const firebaseUser = result.user;
+        if (firebaseUser) {
+          // eslint-disable-next-line no-console
+          console.log("✅ Google popup sign-in successful! User:", firebaseUser.email);
+          await persistUserProfile(firebaseUser);
+          setUser(firebaseUser);
+          return firebaseUser;
+        }
+        return null;
+      } catch (popupError: any) {
+        // If popup fails (e.g., blocked or user closed), fall back to redirect
+        // eslint-disable-next-line no-console
+        console.warn("⚠️ Popup failed, falling back to redirect:", popupError);
+        if (popupError.code === 'auth/popup-closed-by-user' || popupError.code === 'auth/popup-blocked') {
+          // eslint-disable-next-line no-console
+          console.log("🚀 Initiating Google sign-in redirect...");
+          await signInWithRedirect(auth, googleProvider);
+          // This function won't resolve normally because the page navigates away
+          return null;
+        }
+        throw popupError;
+      }
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.error("❌ Failed to initiate Google sign-in:", error);
+      // eslint-disable-next-line no-console
+      console.error("❌ Error details:", {
+        code: error.code,
+        message: error.message,
+      });
+      throw error; // Let the UI handle the error with a toast
     }
   };
 
@@ -89,20 +112,62 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   useEffect(() => {
-    // Handle redirect result once on load (covers popup fallback).
+    // Handle redirect result once on load (after user returns from Google sign-in).
     if (!redirectHandled.current) {
       redirectHandled.current = true;
-      getRedirectResult(auth)
-        .then(async (result) => {
-          if (result?.user) {
-            await persistUserProfile(result.user);
-            setUser(result.user);
-          }
-        })
-        .catch((err) => {
-          // eslint-disable-next-line no-console
-          console.error("Google redirect login failed:", err);
-        });
+      // eslint-disable-next-line no-console
+      console.log("🔍 Checking for redirect result...");
+      // eslint-disable-next-line no-console
+      console.log("🔍 Current URL:", window.location.href);
+      // eslint-disable-next-line no-console
+      console.log("🔍 URL hash:", window.location.hash);
+      // eslint-disable-next-line no-console
+      console.log("🔍 URL search:", window.location.search);
+      // eslint-disable-next-line no-console
+      console.log("🔍 Full window.location:", {
+        href: window.location.href,
+        origin: window.location.origin,
+        pathname: window.location.pathname,
+        hash: window.location.hash,
+        search: window.location.search,
+      });
+      
+      // Small delay to ensure Firebase is ready
+      setTimeout(() => {
+        getRedirectResult(auth)
+          .then(async (result) => {
+            // eslint-disable-next-line no-console
+            console.log("🔍 Redirect result:", result);
+            if (result?.user) {
+              // eslint-disable-next-line no-console
+              console.log("✅ Google sign-in successful! User:", result.user.email);
+              await persistUserProfile(result.user);
+              setUser(result.user);
+            } else {
+              // eslint-disable-next-line no-console
+              console.log("⚠️ No user in redirect result - user may have cancelled or redirect failed");
+              // Check if there are any Firebase auth params in the URL
+              const hashParams = new URLSearchParams(window.location.hash.substring(1));
+              const searchParams = new URLSearchParams(window.location.search);
+              // eslint-disable-next-line no-console
+              console.log("🔍 Hash params:", Object.fromEntries(hashParams));
+              // eslint-disable-next-line no-console
+              console.log("🔍 Search params:", Object.fromEntries(searchParams));
+              // eslint-disable-next-line no-console
+              console.log("🔍 Auth state:", auth.currentUser);
+            }
+          })
+          .catch((err) => {
+            // eslint-disable-next-line no-console
+            console.error("❌ Google redirect login failed:", err);
+            // eslint-disable-next-line no-console
+            console.error("❌ Error details:", {
+              code: err.code,
+              message: err.message,
+              stack: err.stack,
+            });
+          });
+      }, 100);
     }
 
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {

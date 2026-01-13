@@ -8,10 +8,6 @@ export default defineConfig(({ mode }) => ({
   server: {
     host: "127.0.0.1",
     port: 5173,
-    headers: {
-      'Cross-Origin-Opener-Policy': 'same-origin',
-      'Cross-Origin-Embedder-Policy': 'require-corp',
-    },
     proxy: {
       '/api': {
         target: 'http://127.0.0.1:5000',

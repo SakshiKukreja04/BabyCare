@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, Mail, Lock, Baby, Heart } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -11,7 +11,7 @@ import { useAuth } from '@/contexts/AuthContext';
 const Login = () => {
   const { t } = useLanguage();
   const navigate = useNavigate();
-  const { loginWithGoogle, loginWithEmail } = useAuth();
+  const { loginWithGoogle, loginWithEmail, user, loading } = useAuth();
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [formData, setFormData] = useState({
@@ -29,8 +29,6 @@ const Login = () => {
         title: "Welcome back! 💙",
         description: "Successfully logged in.",
       });
-      // After successful login, go to dashboard (it has the main data)
-      navigate('/dashboard');
     } catch (error) {
       toast({
         title: "Login failed",
@@ -50,7 +48,6 @@ const Login = () => {
         title: "Welcome back! 💙",
         description: "Signed in with Google.",
       });
-      navigate('/dashboard');
     } catch (error) {
       toast({
         title: "Google Sign-in failed",
@@ -61,6 +58,13 @@ const Login = () => {
       setIsLoading(false);
     }
   };
+
+  // After any successful auth (including Google redirect), send user to dashboard
+  useEffect(() => {
+    if (!loading && user) {
+      navigate('/dashboard');
+    }
+  }, [loading, user, navigate]);
 
   return (
     <div className="min-h-screen flex gradient-hero">
