@@ -5,7 +5,9 @@
 
 import { auth } from './firebase';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:5000';
+// API Base URL - Must be set via VITE_API_BASE_URL environment variable in production
+// For Vercel deployment, set this to your Render backend URL
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? 'http://localhost:5000' : '');
 
 /**
  * Get Firebase ID token for authentication

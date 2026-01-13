@@ -16,51 +16,75 @@ let authClient = null;
 
 /**
  * Initialize Google Sheets API client with service account credentials
- * Uses GOOGLE_SERVICE_ACCOUNT_KEY environment variable (path to JSON key file)
+ * Supports multiple methods:
+ * 1. GOOGLE_SERVICE_ACCOUNT_JSON (JSON string from environment variable) - Production
+ * 2. GOOGLE_SERVICE_ACCOUNT_KEY (path to JSON key file) - Development
  */
 function initializeGoogleSheetsClient() {
   try {
-    const keyPath = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
-    
-    if (!keyPath) {
+    let keyFile;
+    let authConfig;
+
+    // Priority 1: Use JSON from environment variable (production/deployment)
+    if (process.env.GOOGLE_SERVICE_ACCOUNT_JSON) {
+      try {
+        keyFile = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
+        authConfig = {
+          credentials: keyFile,
+          scopes: [
+            'https://www.googleapis.com/auth/spreadsheets',
+            'https://www.googleapis.com/auth/drive',
+          ],
+        };
+        console.log('✓ Google Sheets API client initialized from GOOGLE_SERVICE_ACCOUNT_JSON');
+      } catch (error) {
+        throw new Error(`Invalid GOOGLE_SERVICE_ACCOUNT_JSON format: ${error.message}`);
+      }
+    }
+    // Priority 2: Use file path from environment variable (development)
+    else if (process.env.GOOGLE_SERVICE_ACCOUNT_KEY) {
+      const keyPath = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
+      const resolvedKeyPath = path.resolve(keyPath);
+      
+      // Verify the file exists
+      const fs = require('fs');
+      if (!fs.existsSync(resolvedKeyPath)) {
+        throw new Error(`Service account key file not found: ${resolvedKeyPath}`);
+      }
+
+      keyFile = require(resolvedKeyPath);
+      authConfig = {
+        keyFile: resolvedKeyPath,
+        scopes: [
+          'https://www.googleapis.com/auth/spreadsheets',
+          'https://www.googleapis.com/auth/drive',
+        ],
+      };
+      console.log('✓ Google Sheets API client initialized from GOOGLE_SERVICE_ACCOUNT_KEY file');
+      console.warn('⚠️  Using file path. For production, use GOOGLE_SERVICE_ACCOUNT_JSON environment variable.');
+    }
+    else {
       throw new Error(
-        'GOOGLE_SERVICE_ACCOUNT_KEY environment variable not set. ' +
-        'Please provide path to Google Service Account JSON key file.'
+        'Google Service Account credentials not configured. ' +
+        'Please set either GOOGLE_SERVICE_ACCOUNT_JSON (JSON string) or ' +
+        'GOOGLE_SERVICE_ACCOUNT_KEY (path to JSON file) environment variable.'
       );
     }
 
-    const resolvedKeyPath = path.resolve(keyPath);
-    
-    // Verify the file exists
-    const fs = require('fs');
-    if (!fs.existsSync(resolvedKeyPath)) {
-      throw new Error(`Service account key file not found: ${resolvedKeyPath}`);
-    }
-
-    const keyFile = require(resolvedKeyPath);
-
-    authClient = new google.auth.GoogleAuth({
-      keyFile: resolvedKeyPath,
-      scopes: [
-        'https://www.googleapis.com/auth/spreadsheets',
-        'https://www.googleapis.com/auth/drive',
-      ],
-    });
-
+    authClient = new google.auth.GoogleAuth(authConfig);
     sheetsClient = google.sheets({ version: 'v4', auth: authClient });
     
     // Log service account email for reference
     try {
-      console.log(`✓ Google Sheets API client initialized`);
       console.log(`  Service Account: ${keyFile.client_email}`);
       console.log(`  Project ID: ${keyFile.project_id}`);
     } catch (e) {
-      console.log('✓ Google Sheets API client initialized');
+      // Ignore logging errors
     }
     
     return { sheetsClient, authClient };
   } catch (error) {
-    console.error('Failed to initialize Google Sheets client:', error.message);
+    console.error('❌ Failed to initialize Google Sheets client:', error.message);
     throw error;
   }
 }

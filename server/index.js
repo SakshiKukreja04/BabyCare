@@ -20,26 +20,47 @@ const { initializeScheduler } = require('./services/backgroundScheduler');
 
 // Initialize Express app
 const app = express();
-const PORT = process.env.PORT || 5001;
+const PORT = process.env.PORT || 5000;
+const NODE_ENV = process.env.NODE_ENV || 'development';
+const isProduction = NODE_ENV === 'production';
 
-// Middleware - CORS configuration for Windows development
-// Allow multiple origins for development (Vite may use different ports)
+// CORS configuration - Production ready
+// Allow frontend Vercel domain and localhost for development
 const allowedOrigins = [
-  process.env.CLIENT_URL,
-  'http://127.0.0.1:5173',
-  'http://127.0.0.1:5174',
-  'http://localhost:5173',
-  'http://localhost:5174',
+  process.env.CLIENT_URL, // Vercel frontend URL
+  process.env.FRONTEND_URL, // Alternative env var name
+  // Only include localhost origins in development
+  ...(isProduction ? [] : [
+    'http://127.0.0.1:5173',
+    'http://127.0.0.1:5174',
+    'http://localhost:5173',
+    'http://localhost:5174',
+  ]),
 ].filter(Boolean);
 
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow requests with no origin (mobile apps, Postman, etc.)
-    if (!origin || allowedOrigins.includes(origin)) {
+    // Allow requests with no origin (mobile apps, Postman, etc.) in development only
+    if (!origin) {
+      if (isProduction) {
+        callback(new Error('CORS: Origin header required in production'));
+        return;
+      }
+      callback(null, true);
+      return;
+    }
+    
+    // Check if origin is allowed
+    if (allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
-      console.warn(`CORS blocked origin: ${origin}`);
-      callback(null, true); // Allow anyway in development
+      if (isProduction) {
+        console.warn(`[CORS] Blocked origin: ${origin}`);
+        callback(new Error(`CORS: Origin ${origin} not allowed`));
+      } else {
+        console.warn(`[CORS] Development mode - allowing origin: ${origin}`);
+        callback(null, true);
+      }
     }
   },
   credentials: true,
@@ -79,21 +100,41 @@ app.use((req, res) => {
   });
 });
 
-// Error handler
+// Error handler - Production safe
 app.use((err, req, res, next) => {
-  console.error('Unhandled error:', err);
-  res.status(500).json({
+  // Log full error details in development, sanitized in production
+  if (isProduction) {
+    console.error('[Error]', {
+      message: err.message,
+      path: req.path,
+      method: req.method,
+      timestamp: new Date().toISOString(),
+    });
+  } else {
+    console.error('Unhandled error:', err);
+  }
+  
+  // Don't expose internal error details in production
+  const statusCode = err.statusCode || 500;
+  res.status(statusCode).json({
     error: 'Internal Server Error',
-    message: 'An unexpected error occurred',
+    message: isProduction 
+      ? 'An unexpected error occurred' 
+      : err.message || 'An unexpected error occurred',
+    ...(isProduction ? {} : { stack: err.stack }),
   });
 });
 
-// Start server - explicitly bind to IPv4 on Windows
-app.listen(PORT, '127.0.0.1', () => {
-  console.log(`🚀 BabyCare Backend Server running on http://127.0.0.1:${PORT}`);
-  console.log(`📡 Health check: http://127.0.0.1:${PORT}/health`);
-  console.log(`🔐 Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`✅ CORS enabled for: http://127.0.0.1:5173`);
+// Start server - Production ready
+// In production, listen on all interfaces (0.0.0.0) to work with Render
+// In development, can bind to localhost for Windows compatibility
+const host = isProduction ? '0.0.0.0' : '127.0.0.1';
+
+app.listen(PORT, host, () => {
+  console.log(`🚀 BabyCare Backend Server running on ${host}:${PORT}`);
+  console.log(`📡 Health check: http://${host}:${PORT}/health`);
+  console.log(`🔐 Environment: ${NODE_ENV}`);
+  console.log(`✅ CORS enabled for: ${allowedOrigins.join(', ') || 'none configured'}`);
   
   // Initialize background scheduler for reminders
   try {
@@ -101,6 +142,10 @@ app.listen(PORT, '127.0.0.1', () => {
     console.log(`⏰ Background reminder scheduler initialized`);
   } catch (error) {
     console.error('❌ Failed to initialize scheduler:', error.message);
+    // Don't exit in production - allow server to continue
+    if (!isProduction) {
+      throw error;
+    }
   }
 });
 
