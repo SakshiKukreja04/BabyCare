@@ -290,17 +290,24 @@ router.post('/:babyId/refresh-alerts', verifyToken, async (req, res) => {
     }
 
     // Re-evaluate all rules (this will update existing alert messages)
-    const alerts = await evaluateAllRules(babyId, parentId);
+    const ruleResult = await evaluateAllRules(babyId, parentId);
     
     // Get updated status
     const status = await evaluateBabyStatus(babyId, parentId);
 
+    // Ensure arrays exist (defensive programming)
+    const allAlerts = Array.isArray(ruleResult.alerts) ? ruleResult.alerts : [];
+    const allReminders = Array.isArray(ruleResult.reminders) ? ruleResult.reminders : [];
+
     return res.json({
       success: true,
       data: {
-        alertsEvaluated: alerts.length,
-        newAlerts: alerts.filter(a => a.isNew).length,
-        updatedAlerts: alerts.filter(a => !a.isNew).length,
+        alertsEvaluated: allAlerts.length,
+        remindersEvaluated: allReminders.length,
+        newAlerts: allAlerts.filter(a => a && a.isNew).length,
+        updatedAlerts: allAlerts.filter(a => a && !a.isNew).length,
+        newReminders: allReminders.filter(r => r && r.isNew).length,
+        updatedReminders: allReminders.filter(r => r && !r.isNew).length,
         status: {
           isAllGood: status.isAllGood,
           alertCount: status.alertCount,
@@ -311,9 +318,11 @@ router.post('/:babyId/refresh-alerts', verifyToken, async (req, res) => {
     });
   } catch (error) {
     console.error('Error refreshing alerts:', error);
+    console.error('Error stack:', error.stack);
     return res.status(500).json({
       error: 'Internal Server Error',
       message: 'Failed to refresh alerts',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined,
     });
   }
 });

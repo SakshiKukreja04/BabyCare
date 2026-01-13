@@ -17,36 +17,36 @@ const Footer = () => {
                 <Heart className="w-4 h-4 text-healthcare-peach-dark absolute -bottom-1 -right-1" />
               </div>
               <span className="font-bold text-xl text-foreground">
-                Baby<span className="text-primary">Care</span>
+                Care<span className="bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">Nest</span>
               </span>
             </Link>
-            <p className="text-muted-foreground text-sm max-w-sm mb-4">
+            <p className="text-muted-foreground text-sm md:text-base max-w-sm mb-6 leading-relaxed">
               {t('footer.tagline')}
             </p>
-            <div className="flex items-center gap-4 text-sm text-muted-foreground">
-              <a href="mailto:support@babycare.in" className="flex items-center gap-1 hover:text-primary transition-colors">
+            <div className="flex items-center gap-4 text-sm md:text-base text-muted-foreground">
+              <a href="mailto:support@carenest.in" className="flex items-center gap-2 hover:text-primary transition-all duration-200 hover:scale-105 font-medium">
                 <Mail className="w-4 h-4" />
-                support@babycare.in
+                support@carenest.in
               </a>
             </div>
           </div>
 
           {/* Quick Links */}
           <div>
-            <h4 className="font-semibold text-foreground mb-4">Quick Links</h4>
-            <ul className="space-y-2">
+            <h4 className="font-bold text-foreground mb-5 text-base md:text-lg">Quick Links</h4>
+            <ul className="space-y-3">
               <li>
-                <a href="/#features" className="text-sm text-muted-foreground hover:text-primary transition-colors">
+                <a href="/#features" className="text-sm md:text-base text-muted-foreground hover:text-primary transition-all duration-200 font-medium hover:translate-x-1 inline-block">
                   {t('nav.features')}
                 </a>
               </li>
               <li>
-                <a href="/#how-it-works" className="text-sm text-muted-foreground hover:text-primary transition-colors">
+                <a href="/#how-it-works" className="text-sm md:text-base text-muted-foreground hover:text-primary transition-all duration-200 font-medium hover:translate-x-1 inline-block">
                   {t('nav.howItWorks')}
                 </a>
               </li>
               <li>
-                <Link to="/dashboard" className="text-sm text-muted-foreground hover:text-primary transition-colors">
+                <Link to="/dashboard" className="text-sm md:text-base text-muted-foreground hover:text-primary transition-all duration-200 font-medium hover:translate-x-1 inline-block">
                   Dashboard
                 </Link>
               </li>
@@ -55,20 +55,20 @@ const Footer = () => {
 
           {/* Legal */}
           <div>
-            <h4 className="font-semibold text-foreground mb-4">Legal</h4>
-            <ul className="space-y-2">
+            <h4 className="font-bold text-foreground mb-5 text-base md:text-lg">Legal</h4>
+            <ul className="space-y-3">
               <li>
-                <a href="#" className="text-sm text-muted-foreground hover:text-primary transition-colors">
+                <a href="#" className="text-sm md:text-base text-muted-foreground hover:text-primary transition-all duration-200 font-medium hover:translate-x-1 inline-block">
                   {t('footer.about')}
                 </a>
               </li>
               <li>
-                <a href="#" className="text-sm text-muted-foreground hover:text-primary transition-colors">
+                <a href="#" className="text-sm md:text-base text-muted-foreground hover:text-primary transition-all duration-200 font-medium hover:translate-x-1 inline-block">
                   {t('footer.privacy')}
                 </a>
               </li>
               <li>
-                <a href="#" className="text-sm text-muted-foreground hover:text-primary transition-colors">
+                <a href="#" className="text-sm md:text-base text-muted-foreground hover:text-primary transition-all duration-200 font-medium hover:translate-x-1 inline-block">
                   {t('footer.disclaimer')}
                 </a>
               </li>
@@ -77,14 +77,14 @@ const Footer = () => {
         </div>
 
         {/* Bottom Bar */}
-        <div className="mt-12 pt-8 border-t border-border">
+        <div className="mt-16 pt-8 border-t border-border/50">
           <div className="flex flex-col md:flex-row items-center justify-between gap-4">
-            <p className="text-sm text-muted-foreground">
-              © {new Date().getFullYear()} BabyCare. Made with 💙 in India.
+            <p className="text-sm md:text-base text-muted-foreground leading-relaxed">
+              © {new Date().getFullYear()} CareNest. Made with 💙 in India.
             </p>
-            <div className="flex items-center gap-2 px-4 py-2 bg-destructive/10 rounded-full">
+            <div className="flex items-center gap-2 px-5 py-2.5 bg-destructive/10 border border-destructive/20 rounded-full hover:bg-destructive/15 transition-all duration-200 hover:scale-105">
               <Phone className="w-4 h-4 text-destructive" />
-              <span className="text-sm font-medium text-destructive">
+              <span className="text-sm md:text-base font-semibold text-destructive">
                 Emergency: 112 | Child Helpline: 1098
               </span>
             </div>

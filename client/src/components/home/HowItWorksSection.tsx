@@ -46,11 +46,11 @@ const HowItWorksSection = () => {
     <section id="how-it-works" className="py-20 md:py-28 bg-secondary/30">
       <div className="container mx-auto px-4">
         {/* Header */}
-        <div className="text-center max-w-2xl mx-auto mb-16">
-          <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-4">
+        <div className="text-center max-w-3xl mx-auto mb-20">
+          <h2 className="text-4xl md:text-5xl font-bold text-foreground mb-6 leading-tight tracking-tight">
             {t('howItWorks.title')}
           </h2>
-          <p className="text-lg text-muted-foreground">
+          <p className="text-lg md:text-xl text-muted-foreground leading-relaxed">
             {t('howItWorks.subtitle')}
           </p>
         </div>
@@ -71,14 +71,14 @@ const HowItWorksSection = () => {
               >
                 {/* Content Card */}
                 <div
-                  className={`flex-1 p-6 bg-card rounded-2xl border border-border shadow-soft hover:shadow-hover transition-all duration-300 ${
+                  className={`flex-1 p-8 bg-card rounded-3xl border border-border/50 shadow-md hover:shadow-xl transition-all duration-300 hover:-translate-y-1 group ${
                     index % 2 === 0 ? 'md:text-right' : 'md:text-left'
                   }`}
                 >
-                  <h3 className="text-xl font-semibold text-foreground mb-2">
+                  <h3 className="text-xl md:text-2xl font-bold text-foreground mb-4 leading-tight group-hover:text-primary transition-colors duration-200">
                     {step.title}
                   </h3>
-                  <p className="text-muted-foreground">{step.description}</p>
+                  <p className="text-muted-foreground leading-relaxed text-base">{step.description}</p>
                 </div>
 
                 {/* Icon Circle */}

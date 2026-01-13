@@ -1,6 +1,6 @@
 /**
  * Feedback Export Service
- * Handles exporting care logs to Google Sheets
+ * Handles exporting care logs to CSV
  */
 
 import { auth } from './firebase';
@@ -19,13 +19,11 @@ async function getAuthToken(): Promise<string> {
 }
 
 /**
- * Export care logs to Google Sheets
- * Creates a new Google Sheet with all feedback logs
+ * Export care logs to CSV
+ * Downloads CSV file directly to user's device
  */
-export async function exportFeedbackLogsToGoogleSheets(): Promise<{
+export async function exportFeedbackLogsToCSV(): Promise<{
   success: boolean;
-  spreadsheetUrl?: string;
-  spreadsheetId?: string;
   totalLogs?: number;
   dateRange?: {
     from: string;
@@ -40,12 +38,12 @@ export async function exportFeedbackLogsToGoogleSheets(): Promise<{
     const response = await fetch(`${API_BASE_URL}/api/export-feedback`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`,
       },
     });
 
     if (!response.ok) {
+      // Try to parse JSON error response
       const errorData = await response.json().catch(() => ({}));
       throw new Error(
         errorData.message ||
@@ -53,23 +51,53 @@ export async function exportFeedbackLogsToGoogleSheets(): Promise<{
       );
     }
 
-    const data = await response.json();
+    // Check if response is CSV
+    const contentType = response.headers.get('content-type');
+    if (contentType && contentType.includes('text/csv')) {
+      // Get filename from Content-Disposition header
+      const contentDisposition = response.headers.get('content-disposition');
+      let filename = 'feedback_logs.csv';
+      if (contentDisposition) {
+        const filenameMatch = contentDisposition.match(/filename="(.+)"/);
+        if (filenameMatch) {
+          filename = filenameMatch[1];
+        }
+      }
 
-    if (!data.success) {
+      // Get CSV content
+      const csvContent = await response.text();
+
+      // Create blob and trigger download
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', filename);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+
       return {
-        success: false,
-        error: data.message || 'Export failed',
+        success: true,
+        message: 'CSV file downloaded successfully',
+      };
+    } else {
+      // Handle JSON response (for empty data case)
+      const data = await response.json();
+      if (data.success === false) {
+        return {
+          success: false,
+          error: data.message || 'Export failed',
+        };
+      }
+      return {
+        success: true,
+        totalLogs: data.data?.totalLogs || 0,
+        dateRange: data.data?.dateRange,
+        message: data.message,
       };
     }
-
-    return {
-      success: true,
-      spreadsheetUrl: data.data?.spreadsheetUrl,
-      spreadsheetId: data.data?.spreadsheetId,
-      totalLogs: data.data?.totalLogs,
-      dateRange: data.data?.dateRange,
-      message: data.message,
-    };
   } catch (error) {
     console.error('Error exporting feedback logs:', error);
     return {
@@ -85,13 +113,12 @@ export async function exportFeedbackLogsToGoogleSheets(): Promise<{
 export async function getExportHistory(): Promise<
   Array<{
     id: string;
-    spreadsheetId: string;
-    spreadsheetUrl: string;
     totalLogs: number;
     dateRange: {
       from: string;
       to: string;
     };
+    format: string;
     createdAt: string;
   }>
 > {

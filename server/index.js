@@ -44,7 +44,7 @@ app.use(cors({
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Google-User'],
 }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));

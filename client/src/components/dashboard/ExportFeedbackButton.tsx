@@ -13,7 +13,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
-import { exportFeedbackLogsToGoogleSheets, getExportHistory } from '@/lib/feedbackExportApi';
+import { exportFeedbackLogsToCSV, getExportHistory } from '@/lib/feedbackExportApi';
 import { FileText, Download, Loader2, CheckCircle2, AlertCircle, History } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 
@@ -38,22 +38,17 @@ export const ExportFeedbackButton = ({
   const handleExport = async () => {
     setIsLoading(true);
     try {
-      const result = await exportFeedbackLogsToGoogleSheets();
+      const result = await exportFeedbackLogsToCSV();
 
       if (result.success) {
         setLastExportResult(result);
         toast({
           title: '✅ Export Successful!',
-          description: `Exported ${result.totalLogs} logs to Google Sheets`,
+          description: result.totalLogs 
+            ? `Downloaded CSV file with ${result.totalLogs} logs`
+            : 'CSV file downloaded successfully',
           variant: 'default',
         });
-
-        // Open the Google Sheet in a new tab
-        if (result.spreadsheetUrl) {
-          setTimeout(() => {
-            window.open(result.spreadsheetUrl, '_blank');
-          }, 500);
-        }
 
         // Refresh history if available
         if (showHistory) {
@@ -125,7 +120,7 @@ export const ExportFeedbackButton = ({
         ) : (
           <Download className="w-4 h-4" />
         )}
-        {isLoading ? 'Exporting...' : 'Export to Google Sheets'}
+        {isLoading ? 'Exporting...' : 'Export to CSV'}
       </Button>
 
       <Dialog open={showDialog} onOpenChange={setShowDialog}>
@@ -136,7 +131,7 @@ export const ExportFeedbackButton = ({
               Export Care Logs
             </DialogTitle>
             <DialogDescription>
-              Export all your baby's care logs to a Google Sheet for easy tracking and sharing
+              Export all your baby's care logs to a CSV file for easy tracking and sharing
             </DialogDescription>
           </DialogHeader>
 
@@ -158,7 +153,7 @@ export const ExportFeedbackButton = ({
                 ) : (
                   <>
                     <Download className="w-4 h-4" />
-                    Export All Logs to Google Sheets
+                    Export All Logs to CSV
                   </>
                 )}
               </Button>
@@ -170,19 +165,10 @@ export const ExportFeedbackButton = ({
                     <div className="text-sm">
                       <p className="font-medium text-green-900">Export Successful!</p>
                       <p className="text-green-800 text-xs mt-1">
-                        {lastExportResult.totalLogs} logs exported ({lastExportResult.dateRange?.from} to{' '}
-                        {lastExportResult.dateRange?.to})
+                        {lastExportResult.totalLogs 
+                        ? `${lastExportResult.totalLogs} logs exported${lastExportResult.dateRange ? ` (${lastExportResult.dateRange.from} to ${lastExportResult.dateRange.to})` : ''}`
+                        : 'CSV file downloaded'}
                       </p>
-                      {lastExportResult.spreadsheetUrl && (
-                        <a
-                          href={lastExportResult.spreadsheetUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-green-700 hover:text-green-900 text-xs font-medium mt-2 inline-block underline"
-                        >
-                          Open Google Sheet →
-                        </a>
-                      )}
                     </div>
                   </div>
                 </div>
@@ -213,19 +199,12 @@ export const ExportFeedbackButton = ({
                                 {new Date(item.createdAt).toLocaleDateString()}
                               </p>
                               <p className="text-xs text-muted-foreground mt-1">
-                                {item.totalLogs} logs • {item.dateRange?.from} to {item.dateRange?.to}
+                                {item.totalLogs} logs{item.dateRange ? ` • ${item.dateRange.from} to ${item.dateRange.to}` : ''}
                               </p>
                             </div>
-                            {item.spreadsheetUrl && (
-                              <a
-                                href={item.spreadsheetUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-xs font-medium text-primary hover:underline flex-shrink-0 whitespace-nowrap"
-                              >
-                                Open ↗
-                              </a>
-                            )}
+                            <span className="text-xs text-muted-foreground flex-shrink-0 whitespace-nowrap">
+                              CSV
+                            </span>
                           </div>
                         </CardContent>
                       </Card>

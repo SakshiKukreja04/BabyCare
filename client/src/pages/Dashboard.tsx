@@ -591,13 +591,13 @@ const Dashboard = () => {
         <main className="pb-12 px-4 pt-8">
           <div className="container mx-auto max-w-6xl">
           {/* Welcome Section */}
-          <div className="mb-8 flex items-center justify-between">
+          <div className="mb-10 flex items-center justify-between">
             <div>
-              <div className="flex items-center gap-2 text-primary mb-2">
+              <div className="flex items-center gap-2 text-primary mb-3">
                 <Heart className="w-5 h-5 animate-pulse-soft" />
-                <span className="text-sm font-medium">{t('dashboard.welcome')} 💙</span>
+                <span className="text-sm font-semibold">{t('dashboard.welcome')} 💙</span>
               </div>
-              <h1 className="text-2xl md:text-3xl font-bold text-foreground">
+              <h1 className="text-3xl md:text-4xl font-bold text-foreground leading-tight tracking-tight">
                 Welcome back, Parent!
               </h1>
             </div>
@@ -625,7 +625,7 @@ const Dashboard = () => {
                 variant="outline"
                 size="sm"
                 onClick={() => setShowUserSettings(!showUserSettings)}
-                className="gap-2"
+                className="gap-2 font-semibold"
               >
                 <Settings className="w-4 h-4" />
                 Settings
@@ -638,7 +638,7 @@ const Dashboard = () => {
             <div className="lg:col-span-2 space-y-6">
               {/* Baby Summary + Dual Timeline Card */}
               {babyData && (
-                <Card className="overflow-hidden border-2 border-primary/20 shadow-card">
+                <Card className="overflow-hidden border-2 border-primary/20 shadow-lg hover:shadow-xl transition-all duration-300">
                   <CardHeader className="bg-gradient-to-r from-healthcare-blue-light to-healthcare-mint-light pb-0">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-4">

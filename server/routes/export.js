@@ -2,47 +2,34 @@
  * Feedback Export Routes
  * 
  * POST /export-feedback
- * Exports user's feedback logs (feeding, sleep, alerts, medications) to Google Sheets
+ * Exports user's feedback logs (feeding, sleep, alerts, medications) to CSV
  */
 
 const express = require('express');
 const router = express.Router();
 const { verifyToken } = require('../middleware/auth');
 const feedbackExportService = require('../services/feedbackExport');
-const googleSheetsService = require('../services/googleSheets');
+const { arrayToCSV } = require('../utils/csvGenerator');
 const { db } = require('../firebaseAdmin');
 
 /**
  * POST /export-feedback
  * 
- * Exports all feedback logs for authenticated user to Google Sheets
+ * Exports all feedback logs for authenticated user to CSV
  * 
  * Request:
  * - Authorization: Bearer <Firebase ID Token>
  * 
  * Response:
- * {
- *   success: true,
- *   message: "Feedback logs exported successfully",
- *   data: {
- *     spreadsheetId: "...",
- *     spreadsheetUrl: "https://docs.google.com/spreadsheets/d/...",
- *     totalLogs: 42,
- *     dateRange: {
- *       from: "2024-01-01",
- *       to: "2024-01-31"
- *     }
- *   }
- * }
+ * - Content-Type: text/csv
+ * - Content-Disposition: attachment; filename="feedback_logs_<userId>.csv"
+ * - CSV file stream
  */
 router.post('/export-feedback', verifyToken, async (req, res) => {
-  let spreadsheetId = null;
-
   try {
     const uid = req.user.uid;
-    const userEmail = req.user.email;
 
-    console.log(`[Export Feedback] Starting export for user ${uid}`);
+    console.log(`[Export Feedback] Starting CSV export for user ${uid}`);
 
     // ============================================
     // STEP 1: Fetch and process feedback logs
@@ -50,65 +37,43 @@ router.post('/export-feedback', verifyToken, async (req, res) => {
     const { rows, totalLogs, dateRange } =
       await feedbackExportService.processFeedbackLogsForExport(uid);
 
-    // Handle empty logs gracefully
-    if (totalLogs === 0) {
-      return res.status(200).json({
-        success: true,
-        message: 'No feedback logs found for this user',
-        data: {
-          spreadsheetId: null,
-          spreadsheetUrl: null,
-          totalLogs: 0,
-          dateRange: null,
-          note: 'No data to export. Start logging your baby\'s feeding, sleep, alerts, and medications to generate a report.',
-        },
-      });
-    }
+    // CSV Headers matching the data structure
+    const csvHeaders = [
+      'Date',
+      'Day',
+      'Total Feeding (ml)',
+      'Total Sleep Duration (hrs)',
+      'Alerts & Reminders',
+      'Medications Given',
+      'Medication Time',
+      'Timestamp',
+    ];
 
     // ============================================
-    // STEP 2: Create Google Sheet
+    // STEP 2: Convert to CSV
     // ============================================
-    const sheetTitle = `Feedback Logs - ${uid}`;
-    spreadsheetId = await googleSheetsService.createSpreadsheet(sheetTitle);
+    let csvContent = '';
 
-    // ============================================
-    // STEP 3: Write headers and data
-    // ============================================
-    await googleSheetsService.writeHeaders(spreadsheetId);
-    await googleSheetsService.writeData(spreadsheetId, rows);
-
-    // ============================================
-    // STEP 4: Format headers
-    // ============================================
-    await googleSheetsService.formatHeaders(spreadsheetId);
-
-    // ============================================
-    // STEP 5: Transfer ownership to user
-    // ============================================
-    // This moves the spreadsheet to the user's Google Drive
-    // and makes it use their storage quota (not service account's)
-    if (userEmail) {
-      await googleSheetsService.transferOwnership(spreadsheetId, userEmail);
+    if (totalLogs === 0 || rows.length === 0) {
+      // Return CSV with headers only
+      csvContent = arrayToCSV([], csvHeaders);
+      console.log('[Export Feedback] No data found, returning headers only');
     } else {
-      console.warn('[Export Feedback] No user email available, skipping ownership transfer');
+      // Convert rows to CSV
+      csvContent = arrayToCSV(rows, csvHeaders);
+      console.log(`[Export Feedback] ✓ Generated CSV with ${rows.length} rows`);
     }
 
     // ============================================
-    // STEP 6: Get spreadsheet URL
-    // ============================================
-    const spreadsheetUrl = googleSheetsService.getSpreadsheetUrl(spreadsheetId);
-
-    // ============================================
-    // STEP 7: Log export in Firestore for audit trail
+    // STEP 3: Log export in Firestore for audit trail
     // ============================================
     try {
       await db.collection('users').doc(uid).collection('exports').add({
-        type: 'feedback_logs',
-        spreadsheetId,
-        spreadsheetUrl,
+        type: 'feedback_logs_csv',
         totalLogs,
         dateRange,
         createdAt: new Date(),
+        format: 'csv',
       });
     } catch (error) {
       console.warn('Could not log export to Firestore:', error.message);
@@ -116,33 +81,29 @@ router.post('/export-feedback', verifyToken, async (req, res) => {
     }
 
     // ============================================
-    // SUCCESS RESPONSE
+    // STEP 4: Set response headers and send CSV
     // ============================================
-    console.log(
-      `[Export Feedback] ✓ Successfully exported ${totalLogs} logs for user ${uid}`
-    );
+    const filename = `feedback_logs_${uid}_${new Date().toISOString().split('T')[0]}.csv`;
 
-    return res.status(200).json({
-      success: true,
-      message: 'Feedback logs exported successfully',
-      data: {
-        spreadsheetId,
-        spreadsheetUrl,
-        totalLogs,
-        dateRange,
-      },
-    });
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Cache-Control', 'no-cache');
+
+    console.log(`[Export Feedback] ✓ Successfully exported ${totalLogs} logs as CSV for user ${uid}`);
+
+    return res.status(200).send(csvContent);
   } catch (error) {
     console.error('[Export Feedback] Error during export:', error);
+    console.error('Error stack:', error.stack);
 
     // ============================================
-    // ERROR RESPONSE
+    // ERROR RESPONSE (JSON for errors)
     // ============================================
     return res.status(500).json({
       success: false,
       error: 'Internal Server Error',
       message: 'Failed to export feedback logs',
-      details: error.message,
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined,
     });
   }
 });
@@ -151,7 +112,7 @@ router.post('/export-feedback', verifyToken, async (req, res) => {
  * GET /export-feedback/history
  * 
  * Get export history for authenticated user
- * Lists all previous exports
+ * Lists all previous CSV exports
  */
 router.get('/export-feedback/history', verifyToken, async (req, res) => {
   try {
@@ -163,16 +124,20 @@ router.get('/export-feedback/history', verifyToken, async (req, res) => {
       .collection('exports');
 
     const snapshot = await exportsRef
+      .where('format', '==', 'csv')
       .orderBy('createdAt', 'desc')
       .limit(10)
       .get();
 
     const exports = [];
     snapshot.forEach((doc) => {
+      const data = doc.data();
       exports.push({
         id: doc.id,
-        ...doc.data(),
-        createdAt: doc.data().createdAt?.toDate?.() || null,
+        totalLogs: data.totalLogs || 0,
+        dateRange: data.dateRange || null,
+        format: data.format || 'csv',
+        createdAt: data.createdAt?.toDate?.()?.toISOString() || null,
       });
     });
 

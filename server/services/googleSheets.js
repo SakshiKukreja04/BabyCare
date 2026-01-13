@@ -88,12 +88,15 @@ function getAuthClient() {
 /**
  * Create a new Google Sheet with given title using Drive API
  * This creates the sheet INSIDE the shared folder, avoiding permission issues
+ * For Google users, creates without folder (will be transferred to their Drive)
  * @param {string} title - Title for the new sheet
+ * @param {boolean} isGoogleUser - Whether user signed up with Google (creates without folder)
  * @returns {Promise<string>} - Spreadsheet ID
  */
-async function createSpreadsheet(title) {
+async function createSpreadsheet(title, isGoogleUser = false) {
   try {
     console.log(`[Drive API] Creating spreadsheet: "${title}"`);
+    console.log(`[Drive API] Is Google user: ${isGoogleUser}`);
     
     // Ensure auth client is initialized
     const auth = getAuthClient();
@@ -102,21 +105,24 @@ async function createSpreadsheet(title) {
     // Initialize Drive client with authenticated client
     const driveClient = google.drive({ version: 'v3', auth: auth });
     
-    // Get folder ID from environment
-    const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
-    if (!folderId) {
-      throw new Error('GOOGLE_DRIVE_FOLDER_ID not set in .env');
-    }
-    
-    console.log(`[Drive API] Using folder ID: ${folderId}`);
-    
-    // Create a blank Google Sheet using Drive API (not Sheets API)
-    // This avoids permission issues and creates directly in the shared folder
+    // For Google users, create without folder (will be in their Drive after transfer)
+    // For non-Google users, use the shared folder
     const fileMetadata = {
       name: title,
       mimeType: 'application/vnd.google-apps.spreadsheet',
-      parents: [folderId], // Create directly in the shared folder
     };
+    
+    if (!isGoogleUser) {
+      // Get folder ID from environment for non-Google users
+      const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
+      if (!folderId) {
+        throw new Error('GOOGLE_DRIVE_FOLDER_ID not set in .env');
+      }
+      fileMetadata.parents = [folderId];
+      console.log(`[Drive API] Using folder ID: ${folderId}`);
+    } else {
+      console.log(`[Drive API] Creating without folder (will be transferred to user's Drive)`);
+    }
     
     console.log(`[Drive API] Creating file with metadata:`, JSON.stringify(fileMetadata));
     
@@ -363,12 +369,13 @@ async function transferOwnership(spreadsheetId, userEmail) {
 }
 
 /**
- * Share spreadsheet with a user (read-only)
+ * Share spreadsheet with a user
  * @param {string} spreadsheetId - ID of the spreadsheet
  * @param {string} email - Email to share with
+ * @param {string} role - Role to grant: 'reader', 'writer', or 'owner' (default: 'reader')
  * @returns {Promise<void>}
  */
-async function shareSpreadsheet(spreadsheetId, email) {
+async function shareSpreadsheet(spreadsheetId, email, role = 'reader') {
   try {
     if (!email) {
       console.warn('No email provided for sharing, skipping share step');
@@ -381,14 +388,14 @@ async function shareSpreadsheet(spreadsheetId, email) {
     await drive.permissions.create({
       fileId: spreadsheetId,
       requestBody: {
-        role: 'reader',
+        role: role,
         type: 'user',
         emailAddress: email,
       },
       fields: 'id',
     });
 
-    console.log(`✓ Spreadsheet shared with ${email}`);
+    console.log(`✓ Spreadsheet shared with ${email} as ${role}`);
   } catch (error) {
     console.error('Error sharing spreadsheet:', error.message);
     // Non-critical error, continue without throwing

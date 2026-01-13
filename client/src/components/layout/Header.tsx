@@ -48,8 +48,8 @@ const Header = () => {
               <Baby className="w-8 h-8 text-primary transition-transform group-hover:scale-110" />
               <Heart className="w-4 h-4 text-healthcare-peach-dark absolute -bottom-1 -right-1 animate-pulse-soft" />
             </div>
-            <span className="font-bold text-xl text-foreground">
-              Baby<span className="text-primary">Care</span>
+            <span className="font-bold text-xl md:text-2xl text-foreground tracking-tight">
+              Care<span className="bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">Nest</span>
             </span>
           </Link>
 
@@ -60,11 +60,11 @@ const Header = () => {
                 key={link.href}
                 href={link.href}
                 className={cn(
-                  'text-sm font-medium transition-colors relative',
+                  'text-sm font-semibold transition-all duration-200 relative',
                   isActive(link.href)
                     ? 'text-primary'
                     : 'text-muted-foreground hover:text-foreground',
-                  'after:absolute after:bottom-0 after:left-0 after:w-full after:h-0.5 after:bg-primary after:scale-x-0 hover:after:scale-x-100 after:transition-transform after:origin-left'
+                  'after:absolute after:bottom-0 after:left-0 after:w-full after:h-0.5 after:bg-primary after:scale-x-0 hover:after:scale-x-100 after:transition-transform after:duration-200 after:origin-left'
                 )}
               >
                 {link.label}
@@ -77,18 +77,18 @@ const Header = () => {
             {/* Language Toggle */}
             <button
               onClick={() => setLanguage(language === 'en' ? 'hi' : 'en')}
-              className="px-3 py-1.5 rounded-full text-sm font-medium bg-secondary text-secondary-foreground hover:bg-accent transition-colors"
+              className="px-4 py-2 rounded-lg text-sm font-semibold bg-secondary text-secondary-foreground hover:bg-accent transition-all duration-200 hover:scale-105 active:scale-95"
             >
               {language === 'en' ? 'हिंदी' : 'English'}
             </button>
 
             <Link to="/login">
-              <Button variant="ghost" size="sm" className="font-medium">
+              <Button variant="ghost" size="sm" className="font-semibold">
                 {t('nav.login')}
               </Button>
             </Link>
             <Link to="/signup">
-              <Button size="sm" className="font-medium shadow-soft hover:shadow-hover transition-shadow">
+              <Button size="sm" className="font-semibold">
                 {t('nav.signup')}
               </Button>
             </Link>
@@ -118,10 +118,10 @@ const Header = () => {
               href={link.href}
               onClick={() => setIsMobileMenuOpen(false)}
               className={cn(
-                'px-4 py-3 rounded-lg text-sm font-medium transition-colors',
+                'px-4 py-3 rounded-lg text-sm font-semibold transition-all duration-200',
                 isActive(link.href)
                   ? 'bg-primary/10 text-primary'
-                  : 'text-muted-foreground hover:bg-secondary'
+                  : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
               )}
             >
               {link.label}

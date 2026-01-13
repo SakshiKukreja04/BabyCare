@@ -96,103 +96,103 @@ const Signup = () => {
               <Heart className="w-4 h-4 text-healthcare-peach-dark absolute -bottom-0.5 -right-0.5" />
             </div>
             <span className="font-bold text-2xl text-foreground">
-              Baby<span className="text-primary">Care</span>
+              Care<span className="bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">Nest</span>
             </span>
           </div>
 
-          <div className="text-center mb-8">
-            <h2 className="text-2xl md:text-3xl font-bold text-foreground mb-2">
+          <div className="text-center mb-10">
+            <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-3 leading-tight tracking-tight">
               {t('auth.signup.title')}
             </h2>
-            <p className="text-muted-foreground">
+            <p className="text-base text-muted-foreground leading-relaxed">
               {t('auth.signup.subtitle')}
             </p>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
+          <form onSubmit={handleSubmit} className="space-y-6">
+            <div className="space-y-3">
               <Label htmlFor="name">{t('auth.name')}</Label>
               <div className="relative">
-                <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+                <User className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground transition-colors duration-200 peer-focus:text-primary" />
                 <Input
                   id="name"
                   type="text"
                   placeholder="Your full name"
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  className="pl-10 h-12 bg-secondary/50 border-border"
+                  className="pl-12 bg-secondary/30 border-border/50"
                   required
                 />
               </div>
             </div>
 
-            <div className="space-y-2">
+            <div className="space-y-3">
               <Label htmlFor="email">{t('auth.email')}</Label>
               <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+                <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground transition-colors duration-200 peer-focus:text-primary" />
                 <Input
                   id="email"
                   type="email"
                   placeholder="you@example.com"
                   value={formData.email}
                   onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  className="pl-10 h-12 bg-secondary/50 border-border"
+                  className="pl-12 bg-secondary/30 border-border/50"
                   required
                 />
               </div>
             </div>
 
-            <div className="space-y-2">
+            <div className="space-y-3">
               <Label htmlFor="password">{t('auth.password')}</Label>
               <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground transition-colors duration-200 peer-focus:text-primary" />
                 <Input
                   id="password"
                   type={showPassword ? 'text' : 'password'}
                   placeholder="••••••••"
                   value={formData.password}
                   onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                  className="pl-10 pr-10 h-12 bg-secondary/50 border-border"
+                  className="pl-12 pr-12 bg-secondary/30 border-border/50"
                   required
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors duration-200 hover:scale-110 active:scale-95"
                 >
                   {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                 </button>
               </div>
             </div>
 
-            <div className="space-y-2">
+            <div className="space-y-3">
               <Label htmlFor="confirmPassword">{t('auth.confirmPassword')}</Label>
               <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground transition-colors duration-200 peer-focus:text-primary" />
                 <Input
                   id="confirmPassword"
                   type={showPassword ? 'text' : 'password'}
                   placeholder="••••••••"
                   value={formData.confirmPassword}
                   onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
-                  className="pl-10 h-12 bg-secondary/50 border-border"
+                  className="pl-12 bg-secondary/30 border-border/50"
                   required
                 />
               </div>
             </div>
 
             {/* Password Requirements */}
-            <div className="p-3 bg-secondary/50 rounded-xl space-y-2">
+            <div className="p-5 bg-secondary/30 rounded-2xl border border-border/50 space-y-3 shadow-sm">
               {passwordRequirements.map((req, index) => (
-                <div key={index} className="flex items-center gap-2 text-sm">
+                <div key={index} className="flex items-center gap-3 text-sm">
                   <div
-                    className={`w-4 h-4 rounded-full flex items-center justify-center transition-colors ${
-                      req.met ? 'bg-alert-success' : 'bg-muted'
+                    className={`w-5 h-5 rounded-full flex items-center justify-center transition-all duration-200 ${
+                      req.met ? 'bg-alert-success shadow-sm scale-110' : 'bg-muted/50'
                     }`}
                   >
                     {req.met && <Check className="w-3 h-3 text-white" />}
                   </div>
-                  <span className={req.met ? 'text-alert-success' : 'text-muted-foreground'}>
+                  <span className={`leading-relaxed ${req.met ? 'text-alert-success font-medium' : 'text-muted-foreground'}`}>
                     {req.text}
                   </span>
                 </div>
@@ -201,7 +201,7 @@ const Signup = () => {
 
             <Button
               type="submit"
-              className="w-full h-12 text-base font-semibold shadow-soft hover:shadow-hover transition-all"
+              className="w-full h-12 text-base font-semibold mt-8"
               disabled={isLoading}
             >
               {isLoading ? (
@@ -215,19 +215,19 @@ const Signup = () => {
             </Button>
           </form>
 
-          <div className="relative my-6">
+          <div className="relative my-8">
             <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-border" />
+              <div className="w-full border-t border-border/50" />
             </div>
-            <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-background px-4 text-muted-foreground">Or continue with</span>
+            <div className="relative flex justify-center text-xs uppercase tracking-wider">
+              <span className="bg-background px-4 text-muted-foreground font-medium">Or continue with</span>
             </div>
           </div>
 
           <Button
             type="button"
             variant="outline"
-            className="w-full h-12 text-base font-medium"
+            className="w-full h-12 text-base font-semibold"
             onClick={handleGoogleSignup}
             disabled={isLoading}
           >
@@ -252,9 +252,9 @@ const Signup = () => {
             {t('auth.googleBtn')}
           </Button>
 
-          <p className="text-center text-sm text-muted-foreground mt-6">
+          <p className="text-center text-sm text-muted-foreground mt-10 leading-relaxed">
             {t('auth.hasAccount')}{' '}
-            <Link to="/login" className="text-primary font-medium hover:underline">
+            <Link to="/login" className="text-primary font-semibold hover:underline transition-all duration-200 hover:text-primary/80">
               {t('nav.login')}
             </Link>
           </p>

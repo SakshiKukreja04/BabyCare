@@ -4,7 +4,7 @@
  * Handles:
  * - Fetching care logs from Firestore (careLogs collection)
  * - Aggregating data by date
- * - Formatting data for Google Sheets export
+ * - Formatting data for CSV export
  */
 
 const { db } = require('../firebaseAdmin');
@@ -155,9 +155,9 @@ function aggregateDayData(logs) {
 }
 
 /**
- * Format aggregated data into rows for Google Sheets
+ * Format aggregated data into rows for CSV export
  * @param {Object} groupedLogs - Logs grouped by date
- * @returns {Array<Array>} - Array of rows ready for Google Sheets
+ * @returns {Array<Array>} - Array of rows ready for CSV export
  */
 function formatDataForSheets(groupedLogs) {
   const rows = [];

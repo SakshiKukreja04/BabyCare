@@ -29,11 +29,27 @@ const verifyToken = async (req, res, next) => {
     // Verify token using Firebase Admin SDK
     const decodedToken = await auth.verifyIdToken(token);
 
+    // Get user record to check provider
+    let providerData = [];
+    try {
+      const userRecord = await auth.getUser(decodedToken.uid);
+      providerData = userRecord.providerData || [];
+    } catch (error) {
+      console.warn('Could not fetch user provider data:', error.message);
+    }
+
+    // Check if user signed up with Google
+    const isGoogleUser = providerData.some(
+      (provider) => provider.providerId === 'google.com'
+    );
+
     // Attach user info to request
     req.user = {
       uid: decodedToken.uid,
       email: decodedToken.email,
       name: decodedToken.name,
+      isGoogleUser: isGoogleUser,
+      providerData: providerData,
     };
 
     next();

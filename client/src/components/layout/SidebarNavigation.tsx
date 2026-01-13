@@ -66,7 +66,7 @@ export function SidebarNavigation() {
             <Heart className="w-3 h-3 text-healthcare-peach-dark absolute -bottom-0.5 -right-0.5 animate-pulse-soft" />
           </div>
           <span className="font-bold text-lg text-foreground">
-            Baby<span className="text-primary">Care</span>
+            Care<span className="bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">Nest</span>
           </span>
         </Link>
       </SidebarHeader>

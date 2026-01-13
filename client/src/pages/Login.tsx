@@ -116,53 +116,53 @@ const Login = () => {
               <Heart className="w-4 h-4 text-healthcare-peach-dark absolute -bottom-0.5 -right-0.5" />
             </div>
             <span className="font-bold text-2xl text-foreground">
-              Baby<span className="text-primary">Care</span>
+              Care<span className="bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">Nest</span>
             </span>
           </div>
 
-          <div className="text-center mb-8">
-            <h2 className="text-2xl md:text-3xl font-bold text-foreground mb-2">
+          <div className="text-center mb-10">
+            <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-3 leading-tight tracking-tight">
               {t('auth.login.title')}
             </h2>
-            <p className="text-muted-foreground">
+            <p className="text-base text-muted-foreground leading-relaxed">
               {t('auth.login.subtitle')}
             </p>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-5">
-            <div className="space-y-2">
+          <form onSubmit={handleSubmit} className="space-y-6">
+            <div className="space-y-3">
               <Label htmlFor="email">{t('auth.email')}</Label>
               <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+                <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground transition-colors duration-200 peer-focus:text-primary" />
                 <Input
                   id="email"
                   type="email"
                   placeholder="you@example.com"
                   value={formData.email}
                   onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  className="pl-10 h-12 bg-secondary/50 border-border"
+                  className="pl-12 bg-secondary/30 border-border/50"
                   required
                 />
               </div>
             </div>
 
-            <div className="space-y-2">
+            <div className="space-y-3">
               <Label htmlFor="password">{t('auth.password')}</Label>
               <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground transition-colors duration-200 peer-focus:text-primary" />
                 <Input
                   id="password"
                   type={showPassword ? 'text' : 'password'}
                   placeholder="••••••••"
                   value={formData.password}
                   onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                  className="pl-10 pr-10 h-12 bg-secondary/50 border-border"
+                  className="pl-12 pr-12 bg-secondary/30 border-border/50"
                   required
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors duration-200 hover:scale-110 active:scale-95"
                 >
                   {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                 </button>
@@ -171,7 +171,7 @@ const Login = () => {
 
             <Button
               type="submit"
-              className="w-full h-12 text-base font-semibold shadow-soft hover:shadow-hover transition-all"
+              className="w-full h-12 text-base font-semibold mt-8"
               disabled={isLoading}
             >
               {isLoading ? (
@@ -187,17 +187,17 @@ const Login = () => {
 
           <div className="relative my-8">
             <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-border" />
+              <div className="w-full border-t border-border/50" />
             </div>
-            <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-background px-4 text-muted-foreground">Or continue with</span>
+            <div className="relative flex justify-center text-xs uppercase tracking-wider">
+              <span className="bg-background px-4 text-muted-foreground font-medium">Or continue with</span>
             </div>
           </div>
 
           <Button
             type="button"
             variant="outline"
-            className="w-full h-12 text-base font-medium"
+            className="w-full h-12 text-base font-semibold"
             onClick={handleGoogleLogin}
             disabled={isLoading}
           >
@@ -222,9 +222,9 @@ const Login = () => {
             {t('auth.googleBtn')}
           </Button>
 
-          <p className="text-center text-sm text-muted-foreground mt-8">
+          <p className="text-center text-sm text-muted-foreground mt-10 leading-relaxed">
             {t('auth.noAccount')}{' '}
-            <Link to="/signup" className="text-primary font-medium hover:underline">
+            <Link to="/signup" className="text-primary font-semibold hover:underline transition-all duration-200 hover:text-primary/80">
               {t('nav.signup')}
             </Link>
           </p>

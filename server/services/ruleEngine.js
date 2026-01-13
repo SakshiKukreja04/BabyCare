@@ -926,9 +926,15 @@ async function evaluateBabyStatus(babyId, parentId) {
       return message;
     });
 
-    // Determine severity level
-    const hasHighSeverity = activeAlerts.some(alert => alert.severity === 'high');
-    const hasMediumSeverity = activeAlerts.some(alert => alert.severity === 'medium');
+    // Determine severity level (alerts are stored with uppercase severity)
+    const hasHighSeverity = activeAlerts.some(alert => {
+      const severity = (alert.severity || '').toUpperCase();
+      return severity === 'HIGH';
+    });
+    const hasMediumSeverity = activeAlerts.some(alert => {
+      const severity = (alert.severity || '').toUpperCase();
+      return severity === 'MEDIUM';
+    });
     
     let overallSeverity = 'none';
     if (hasHighSeverity) {
