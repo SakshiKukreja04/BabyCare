@@ -6,6 +6,11 @@ const { updateReminderStatus } = require('./reminders');
 /**
  * Notification Service
  * Sends reminders via FCM (web) and Twilio SMS (for HIGH priority)
+ * 
+ * OPTIMIZED:
+ * - Defensive coding for undefined responses
+ * - Quota error handling (code 8)
+ * - Single log per batch
  */
 
 /**
@@ -14,6 +19,15 @@ const { updateReminderStatus } = require('./reminders');
  * @returns {Promise<Object>} Send status for each channel
  */
 async function sendReminderNotification(reminder) {
+  // Defensive: validate reminder object
+  if (!reminder || !reminder.id) {
+    console.warn('⚠️ [Notification] Invalid reminder object received');
+    return {
+      web: { success: false, error: 'Invalid reminder' },
+      sms: { success: false, error: 'Invalid reminder' },
+    };
+  }
+
   const status = {
     web: { success: false, messageId: null, error: null },
     sms: { success: false, messageId: null, error: null },
@@ -25,66 +39,67 @@ async function sendReminderNotification(reminder) {
     const parentDoc = await parentRef.get();
 
     if (!parentDoc.exists) {
-      throw new Error(`Parent user ${reminder.parentId} not found`);
+      console.warn(`⚠️ [Notification] Parent user ${reminder.parentId} not found`);
+      await updateReminderStatus(reminder.id, 'failed', 'Parent not found');
+      return {
+        web: { success: false, error: 'Parent not found' },
+        sms: { success: false, error: 'Parent not found' },
+      };
     }
 
-    const parentData = parentDoc.data();
+    const parentData = parentDoc.data() || {};
     const fcmToken = parentData.fcmToken;
     const phoneNumber = parentData.phoneNumber;
 
+    // Defensive: ensure channels is an array
+    const channels = Array.isArray(reminder.channels) ? reminder.channels : ['web'];
+
     // Send Web Notification (FCM)
-    if (reminder.channels.includes('web') || reminder.channels.includes('both')) {
+    if (channels.includes('web') || channels.includes('both')) {
       status.web = await sendWebReminder(reminder, fcmToken);
     }
 
     // Send SMS Notification (Twilio)
-    // Only send SMS for sms channel type (not for whatsapp for backward compatibility)
-    if (reminder.channels.includes('sms') || reminder.channels.includes('both')) {
+    if (channels.includes('sms') || channels.includes('both')) {
       status.sms = await sendSMSReminder(reminder, phoneNumber);
     }
 
     // Update reminder status based on results
-    const allSucceeded = status.web.success && status.sms.success;
-    const anyFailed = !status.web.success || !status.sms.success;
+    const webSuccess = status.web.success;
+    const smsSuccess = status.sms.success;
 
-    if (allSucceeded) {
-      // All channels succeeded
+    if (webSuccess || smsSuccess) {
+      // At least one channel succeeded
       await updateReminderStatus(reminder.id, 'sent');
-      console.log(`✅ [Notification] Reminder sent successfully
-        ├─ ID: ${reminder.id}
-        ├─ Medicine: ${reminder.medicine_name}
-        ├─ Web: Success (${status.web.messageId})
-        ├─ SMS: Success (${status.sms.messageId})
-        └─ Status: SENT`);
-    } else if (status.web.success) {
-      // At least web notification succeeded, mark as sent
-      await updateReminderStatus(reminder.id, 'sent');
-      console.log(`✅ [Notification] Reminder sent (web only)
-        ├─ ID: ${reminder.id}
-        ├─ Medicine: ${reminder.medicine_name}
-        ├─ Web: Success (${status.web.messageId})
-        ├─ SMS: ${status.sms.error || 'Not sent'}
-        └─ Status: SENT`);
     } else {
-      // All failed or only partial success
-      const errorMsg = Object.entries(status)
-        .filter(([, result]) => !result.success)
-        .map(([channel, result]) => `${channel}: ${result.error}`)
-        .join('; ');
+      // All failed
+      const errorMsg = [
+        status.web.error ? `web: ${status.web.error}` : null,
+        status.sms.error ? `sms: ${status.sms.error}` : null,
+      ].filter(Boolean).join('; ');
       
-      await updateReminderStatus(reminder.id, 'failed', errorMsg);
-      console.log(`❌ [Notification] Reminder failed
-        ├─ ID: ${reminder.id}
-        ├─ Medicine: ${reminder.medicine_name}
-        ├─ Web: ${status.web.error || 'Failed'}
-        ├─ SMS: ${status.sms.error || 'Failed'}
-        └─ Status: FAILED`);
+      await updateReminderStatus(reminder.id, 'failed', errorMsg || 'All channels failed');
     }
 
     return status;
   } catch (error) {
+    // Handle Firestore quota errors
+    if (error.code === 8) {
+      console.warn(`⚠️ [Notification] Quota exceeded for reminder ${reminder.id}`);
+      return {
+        web: { success: false, error: 'Quota exceeded' },
+        sms: { success: false, error: 'Quota exceeded' },
+      };
+    }
+    
     console.error('❌ [Notifications] Error sending reminder:', error.message);
-    await updateReminderStatus(reminder.id, 'failed', error.message);
+    
+    try {
+      await updateReminderStatus(reminder.id, 'failed', error.message);
+    } catch (updateError) {
+      // Ignore update errors in catch block
+    }
+    
     return {
       web: { success: false, error: error.message },
       sms: { success: false, error: error.message },
@@ -206,16 +221,26 @@ async function sendSMSReminder(reminder, phoneNumber) {
 
 /**
  * Batch send all pending reminders (called by scheduler)
+ * OPTIMIZED: Uses efficient query with limit, single log per batch
+ * @param {number} limit - Maximum reminders to process per cycle
  * @returns {Promise<Object>} Summary of sent reminders
  */
-async function processPendingReminders() {
+async function processPendingReminders(limit = 20) {
+  const cycleStart = Date.now();
+  
   try {
     const { getPendingReminders } = require('./reminders');
-    const pendingReminders = await getPendingReminders();
+    const pendingReminders = await getPendingReminders(limit);
+
+    // Defensive: guard against non-array responses
+    if (!pendingReminders || !Array.isArray(pendingReminders)) {
+      console.warn('⚠️ [Scheduler] getPendingReminders returned invalid data');
+      return { total: 0, sent: 0, failed: 0, durationMs: Date.now() - cycleStart };
+    }
 
     if (pendingReminders.length === 0) {
-      console.log('📭 [Scheduler] No pending reminders');
-      return { total: 0, sent: 0, failed: 0 };
+      // No log for empty cycles to reduce noise
+      return { total: 0, sent: 0, failed: 0, durationMs: Date.now() - cycleStart };
     }
 
     let sent = 0;
@@ -226,33 +251,45 @@ async function processPendingReminders() {
         const result = await sendReminderNotification(reminder);
         
         // Consider it sent if at least web notification succeeded
-        if (result.web.success) {
+        if (result.web?.success || result.sms?.success) {
           sent++;
         } else {
           failed++;
         }
       } catch (error) {
+        // Handle quota errors gracefully
+        if (error.code === 8) {
+          console.warn(`⚠️ [Scheduler] Quota exceeded, stopping batch processing`);
+          break;
+        }
         console.error(`❌ [Scheduler] Failed to process reminder ${reminder.id}:`, error.message);
         failed++;
       }
 
       // Add small delay to avoid rate limiting
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await new Promise(resolve => setTimeout(resolve, 200));
     }
 
-    console.log(`✅ [Scheduler] Batch processing complete
-      ├─ Total reminders: ${pendingReminders.length}
-      ├─ Successfully sent: ${sent}
-      ├─ Failed: ${failed}
-      └─ Success rate: ${sent > 0 ? Math.round((sent / pendingReminders.length) * 100) : 0}%`);
+    const durationMs = Date.now() - cycleStart;
+    
+    // Single summary log for the batch
+    console.log(`✅ [Scheduler] Batch complete: ${sent}/${pendingReminders.length} sent, ${failed} failed (${durationMs}ms)`);
+    
     return {
       total: pendingReminders.length,
       sent,
       failed,
+      durationMs,
     };
   } catch (error) {
+    // Handle Firestore quota errors (code 8) without crashing
+    if (error.code === 8) {
+      console.warn('⚠️ [Scheduler] Firestore quota exceeded, skipping cycle');
+      return { total: 0, sent: 0, failed: 0, durationMs: Date.now() - cycleStart, skipped: true };
+    }
+    
     console.error('❌ [Scheduler] Error processing reminders:', error.message);
-    return { total: 0, sent: 0, failed: 0 };
+    return { total: 0, sent: 0, failed: 0, durationMs: Date.now() - cycleStart, error: error.message };
   }
 }
 

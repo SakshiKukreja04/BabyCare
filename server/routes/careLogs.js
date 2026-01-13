@@ -4,6 +4,43 @@ const { db, admin } = require('../firebaseAdmin');
 const { verifyToken } = require('../middleware/auth');
 const { evaluateAllRules, evaluateBabyStatus } = require('../services/ruleEngine');
 const { sendAlertSMS, getUserPhoneNumber } = require('../services/sms.service');
+const { 
+  updateFeedingSummary, 
+  updateSleepSummary, 
+  updateMedicationSummary 
+} = require('../services/dailySummary');
+const { babyOwnershipCache } = require('../services/memoryCache');
+
+// Query limits to prevent quota exhaustion
+const QUERY_LIMITS = {
+  CARE_LOGS: 50,
+  MONTHLY_ANALYTICS: 200,
+};
+
+/**
+ * Verify baby ownership with caching
+ */
+async function verifyBabyOwnershipCached(babyId, parentId) {
+  const cacheKey = `baby_${babyId}`;
+  const cached = babyOwnershipCache.get(cacheKey);
+  if (cached) {
+    return { valid: cached.parentId === parentId, babyData: cached };
+  }
+  
+  try {
+    const babyDoc = await db.collection('babies').doc(babyId).get();
+    if (!babyDoc.exists) return { valid: false, babyData: null };
+    const babyData = babyDoc.data();
+    babyOwnershipCache.set(cacheKey, babyData);
+    return { valid: babyData.parentId === parentId, babyData };
+  } catch (error) {
+    if (error.code === 8) {
+      console.warn('⚠️ [CareLogs] Quota exceeded during baby ownership check');
+      return { valid: false, quotaExceeded: true };
+    }
+    throw error;
+  }
+}
 
 /**
  * POST /care-logs
@@ -12,9 +49,10 @@ const { sendAlertSMS, getUserPhoneNumber } = require('../services/sms.service');
  * Flow:
  * 1. Verify user via auth middleware
  * 2. Store care log in Firestore
- * 3. Call rule engine for all log types
- * 4. Send notifications if alerts are created (FCM handled by rule engine)
- * 5. Return summary status for dashboard
+ * 3. Update dailySummary document (event-based aggregation)
+ * 4. Call rule engine for all log types
+ * 5. Send notifications if alerts are created (FCM handled by rule engine)
+ * 6. Return summary status for dashboard
  */
 router.post('/', verifyToken, async (req, res) => {
   try {
@@ -75,6 +113,7 @@ router.post('/', verifyToken, async (req, res) => {
     // Create care log document
     // Only include fields that are relevant to the log type (Firestore doesn't allow undefined)
     const careLogRef = db.collection('careLogs').doc();
+    const timestamp = new Date();
     const careLogData = {
       id: careLogRef.id,
       parentId,
@@ -99,6 +138,21 @@ router.post('/', verifyToken, async (req, res) => {
 
     await careLogRef.set(careLogData);
 
+    // EVENT-BASED: Update daily summary document
+    // This aggregates data for efficient querying instead of recalculating
+    try {
+      if (type === 'feeding') {
+        await updateFeedingSummary(babyId, quantity || 0, timestamp);
+      } else if (type === 'sleep') {
+        await updateSleepSummary(babyId, duration || 0, timestamp);
+      } else if (type === 'medication' && medicationGiven) {
+        await updateMedicationSummary(babyId, { name: medicationGiven }, timestamp);
+      }
+    } catch (summaryError) {
+      // Don't fail the request if summary update fails
+      console.warn('⚠️ [CareLogs] Failed to update daily summary:', summaryError.message);
+    }
+
     // Evaluate all applicable rules after creating care log (REAL-TIME EVALUATION)
     // FCM notifications are now sent automatically by the rule engine:
     // - HIGH alerts trigger FCM
@@ -106,10 +160,19 @@ router.post('/', verifyToken, async (req, res) => {
     // - MEDIUM/LOW alerts do NOT trigger FCM
     let ruleResult = { alerts: [], reminders: [] };
     if (type === 'feeding' || type === 'sleep' || type === 'medication') {
-      ruleResult = await evaluateAllRules(babyId, parentId);
+      try {
+        ruleResult = await evaluateAllRules(babyId, parentId);
+      } catch (ruleError) {
+        // Don't fail the request if rule evaluation fails
+        console.warn('⚠️ [CareLogs] Failed to evaluate rules:', ruleError.message);
+        ruleResult = { alerts: [], reminders: [] };
+      }
 
+      // Defensive: ensure arrays exist
+      const alerts = Array.isArray(ruleResult.alerts) ? ruleResult.alerts : [];
+      
       // Send SMS notifications for NEW HIGH alerts only
-      const newHighAlerts = (ruleResult.alerts || []).filter(alert => alert.isNew && alert.severity === 'HIGH');
+      const newHighAlerts = alerts.filter(alert => alert && alert.isNew && alert.severity === 'HIGH');
       for (const alert of newHighAlerts) {
         try {
           const phoneNumber = await getUserPhoneNumber(parentId);
@@ -131,10 +194,16 @@ router.post('/', verifyToken, async (req, res) => {
     }
 
     // Get current baby status for summary card
-    const summaryStatus = await evaluateBabyStatus(babyId, parentId);
+    let summaryStatus = { isAllGood: true, alertCount: 0, overallSeverity: 'NONE', summary: '', reasons: [] };
+    try {
+      summaryStatus = await evaluateBabyStatus(babyId, parentId);
+    } catch (statusError) {
+      console.warn('⚠️ [CareLogs] Failed to evaluate baby status:', statusError.message);
+    }
 
-    const alerts = ruleResult.alerts || [];
-    const reminders = ruleResult.reminders || [];
+    // Defensive: ensure arrays for response
+    const alerts = Array.isArray(ruleResult.alerts) ? ruleResult.alerts : [];
+    const reminders = Array.isArray(ruleResult.reminders) ? ruleResult.reminders : [];
 
     res.status(201).json({
       success: true,
@@ -143,10 +212,10 @@ router.post('/', verifyToken, async (req, res) => {
           ...careLogData,
           timestamp: new Date().toISOString(),
         },
-        alertsCreated: alerts.filter(a => a.isNew).length,
-        alertsUpdated: alerts.filter(a => !a.isNew).length,
-        remindersCreated: reminders.filter(r => r.isNew).length,
-        remindersUpdated: reminders.filter(r => !r.isNew).length,
+        alertsCreated: alerts.filter(a => a && a.isNew).length,
+        alertsUpdated: alerts.filter(a => a && !a.isNew).length,
+        remindersCreated: reminders.filter(r => r && r.isNew).length,
+        remindersUpdated: reminders.filter(r => r && !r.isNew).length,
         summaryStatus: {
           isAllGood: summaryStatus.isAllGood,
           alertCount: summaryStatus.alertCount,
@@ -168,6 +237,7 @@ router.post('/', verifyToken, async (req, res) => {
 /**
  * GET /care-logs
  * Get care logs for a baby
+ * OPTIMIZED: Uses cached baby ownership and hard query limits
  */
 router.get('/', verifyToken, async (req, res) => {
   try {
@@ -181,36 +251,49 @@ router.get('/', verifyToken, async (req, res) => {
       });
     }
 
-    // Verify baby belongs to parent
-    const babyRef = db.collection('babies').doc(babyId);
-    const babyDoc = await babyRef.get();
+    // Verify baby belongs to parent (with caching)
+    const ownership = await verifyBabyOwnershipCached(babyId, parentId);
+    
+    if (ownership.quotaExceeded) {
+      return res.status(503).json({
+        error: 'Service Unavailable',
+        message: 'Temporarily unable to process request. Please try again.',
+      });
+    }
 
-    if (!babyDoc.exists) {
+    if (!ownership.babyData) {
       return res.status(404).json({
         error: 'Not Found',
         message: 'Baby not found',
       });
     }
 
-    const babyData = babyDoc.data();
-    if (babyData.parentId !== parentId) {
+    if (!ownership.valid) {
       return res.status(403).json({
         error: 'Forbidden',
         message: 'You do not have access to this baby',
       });
     }
 
-    // Fetch care logs
-    // Note: We filter by parentId first, then filter and sort client-side
-    // to avoid requiring a composite index
-    const careLogsRef = db.collection('careLogs');
-    const query = careLogsRef
-      .where('parentId', '==', parentId)
-      .limit(100); // Get more than needed, then filter client-side
+    // Fetch care logs with HARD LIMIT
+    // Query directly by babyId for efficiency
+    const requestedLimit = Math.min(parseInt(limit, 10) || 20, QUERY_LIMITS.CARE_LOGS);
+    
+    const query = db.collection('careLogs')
+      .where('babyId', '==', babyId)
+      .limit(requestedLimit);
 
     const snapshot = await query.get();
     
-    // Filter by babyId and sort by timestamp client-side
+    // Defensive: handle undefined snapshot
+    if (!snapshot || !snapshot.docs || !Array.isArray(snapshot.docs)) {
+      return res.json({
+        success: true,
+        data: { careLogs: [], count: 0 },
+      });
+    }
+    
+    // Map and sort
     const careLogs = snapshot.docs
       .map(doc => {
         const data = doc.data();
@@ -220,14 +303,11 @@ router.get('/', verifyToken, async (req, res) => {
           timestamp: data.timestamp,
         };
       })
-      .filter(log => log.babyId === babyId)
       .sort((a, b) => {
-        // Sort by timestamp descending (newest first)
         const aTime = a.timestamp?.toMillis?.() || a.timestamp?.toDate?.()?.getTime() || 0;
         const bTime = b.timestamp?.toMillis?.() || b.timestamp?.toDate?.()?.getTime() || 0;
         return bTime - aTime;
       })
-      .slice(0, parseInt(limit, 10))
       .map(log => ({
         ...log,
         timestamp: log.timestamp?.toDate?.()?.toISOString() || log.timestamp?.toISOString?.() || log.timestamp,
@@ -241,6 +321,13 @@ router.get('/', verifyToken, async (req, res) => {
       },
     });
   } catch (error) {
+    if (error.code === 8) {
+      console.warn('⚠️ [CareLogs] Quota exceeded fetching care logs');
+      return res.status(503).json({
+        error: 'Service Unavailable',
+        message: 'Temporarily unable to fetch logs. Please try again.',
+      });
+    }
     console.error('Error fetching care logs:', error);
     res.status(500).json({
       error: 'Internal Server Error',
@@ -253,6 +340,7 @@ router.get('/', verifyToken, async (req, res) => {
 /**
  * GET /care-logs/analytics/monthly
  * Get monthly analytics (days with logs, missed days, consistency percentage)
+ * OPTIMIZED: Uses cached baby ownership and hard query limits
  */
 router.get('/analytics/monthly', verifyToken, async (req, res) => {
   try {
@@ -266,19 +354,24 @@ router.get('/analytics/monthly', verifyToken, async (req, res) => {
       });
     }
 
-    // Verify baby belongs to parent
-    const babyRef = db.collection('babies').doc(babyId);
-    const babyDoc = await babyRef.get();
+    // Verify baby belongs to parent (with caching)
+    const ownership = await verifyBabyOwnershipCached(babyId, parentId);
+    
+    if (ownership.quotaExceeded) {
+      return res.status(503).json({
+        error: 'Service Unavailable',
+        message: 'Temporarily unable to process request. Please try again.',
+      });
+    }
 
-    if (!babyDoc.exists) {
+    if (!ownership.babyData) {
       return res.status(404).json({
         error: 'Not Found',
         message: 'Baby not found',
       });
     }
 
-    const babyData = babyDoc.data();
-    if (babyData.parentId !== parentId) {
+    if (!ownership.valid) {
       return res.status(403).json({
         error: 'Forbidden',
         message: 'You do not have access to this baby',
@@ -290,21 +383,39 @@ router.get('/analytics/monthly', verifyToken, async (req, res) => {
     const currentMonth = parseInt(month) || now.getMonth();
     const currentYear = parseInt(year) || now.getFullYear();
 
-    // Fetch all care logs for the baby
-    const careLogsRef = db.collection('careLogs');
-    const query = careLogsRef
-      .where('parentId', '==', parentId)
-      .limit(1000);
+    // Fetch care logs for the baby with HARD LIMIT
+    // Query directly by babyId for efficiency
+    const query = db.collection('careLogs')
+      .where('babyId', '==', babyId)
+      .limit(QUERY_LIMITS.MONTHLY_ANALYTICS);
 
     const snapshot = await query.get();
+    
+    // Defensive: handle undefined snapshot
+    if (!snapshot || !snapshot.docs || !Array.isArray(snapshot.docs)) {
+      return res.json({
+        success: true,
+        data: {
+          month: `${new Date(currentYear, currentMonth).toLocaleString('default', { month: 'long' })} ${currentYear}`,
+          monthNumber: currentMonth,
+          year: currentYear,
+          totalDaysInMonth: new Date(currentYear, currentMonth + 1, 0).getDate(),
+          daysWithLogs: 0,
+          missedDays: 0,
+          consistency: 0,
+          consistencyLevel: 'Poor',
+          daysCountedForConsistency: 0,
+          startDate: null,
+        },
+      });
+    }
 
-    // Filter by babyId and calculate unique days with logs and earliest start date
+    // Calculate unique days with logs and earliest start date
     const daysWithLogsSet = new Set();
     let earliestDate = null;
 
     snapshot.docs.forEach((doc) => {
       const data = doc.data();
-      if (data.babyId !== babyId) return;
 
       const timestamp = data.timestamp?.toDate?.() || new Date(data.timestamp);
       if (isNaN(timestamp.getTime())) return;
@@ -417,6 +528,7 @@ router.get('/analytics/monthly', verifyToken, async (req, res) => {
  * GET /care-logs/alerts/monthly
  * Get alert history for a specific month
  * Counts alerts from when user started logging till now for that month
+ * OPTIMIZED: Uses cached baby ownership and hard query limits
  */
 router.get('/alerts/monthly', verifyToken, async (req, res) => {
   try {
@@ -437,43 +549,56 @@ router.get('/alerts/monthly', verifyToken, async (req, res) => {
       });
     }
 
-    // Verify baby belongs to parent
-    const babyRef = db.collection('babies').doc(babyId);
-    const babyDoc = await babyRef.get();
+    // Verify baby belongs to parent (with caching)
+    const ownership = await verifyBabyOwnershipCached(babyId, parentId);
+    
+    if (ownership.quotaExceeded) {
+      return res.status(503).json({
+        error: 'Service Unavailable',
+        message: 'Temporarily unable to process request. Please try again.',
+      });
+    }
 
-    if (!babyDoc.exists) {
+    if (!ownership.babyData) {
       return res.status(404).json({
         error: 'Not Found',
         message: 'Baby not found',
       });
     }
 
-    const babyData = babyDoc.data();
-    if (babyData.parentId !== parentId) {
+    if (!ownership.valid) {
       return res.status(403).json({
         error: 'Forbidden',
         message: 'You do not have access to this baby',
       });
     }
 
-    // Get all care logs for this baby to find the start date
-    const logsSnapshot = await db
-      .collection('careLogs')
-      .where('babyId', '==', babyId)
-      .get();
+    // Get care logs for this baby to find the start date (with hard limit)
+    let logsSnapshot;
+    try {
+      logsSnapshot = await db
+        .collection('careLogs')
+        .where('babyId', '==', babyId)
+        .orderBy('timestamp', 'asc')
+        .limit(1)  // Only need earliest log for start date
+        .get();
+    } catch (error) {
+      if (error.code === 8) {
+        console.warn('⚠️ [CareLogs] Quota exceeded fetching logs for start date');
+        return res.status(503).json({
+          error: 'Service Unavailable',
+          message: 'Temporarily unable to process request. Please try again.',
+        });
+      }
+      throw error;
+    }
 
     let startDate = new Date(year, month - 1, 1); // Default to first of month
     
-    if (logsSnapshot.size > 0) {
-      let earliestTimestamp = null;
-      for (const doc of logsSnapshot.docs) {
-        const log = doc.data();
-        const logTimestamp = log.timestamp?.toDate?.() || new Date(log.timestamp);
-        if (!earliestTimestamp || logTimestamp < earliestTimestamp) {
-          earliestTimestamp = logTimestamp;
-        }
-      }
-      if (earliestTimestamp) {
+    if (logsSnapshot && logsSnapshot.size > 0) {
+      const earliestLog = logsSnapshot.docs[0].data();
+      const earliestTimestamp = earliestLog.timestamp?.toDate?.() || new Date(earliestLog.timestamp);
+      if (!isNaN(earliestTimestamp.getTime())) {
         startDate = new Date(Math.max(startDate.getTime(), earliestTimestamp.getTime()));
       }
     }
@@ -491,36 +616,42 @@ router.get('/alerts/monthly', verifyToken, async (req, res) => {
       endDate: endDate.toISOString(),
     });
 
-    // Fetch alerts for the baby (without date filter first due to Firestore index limitations)
-    const alertsSnapshot = await db
-      .collection('alerts')
-      .where('babyId', '==', babyId)
-      .get();
-
-    console.log(`Found ${alertsSnapshot.size} total alerts for baby ${babyId}`);
-    
-    // Log first 3 alerts to see what fields exist
-    if (alertsSnapshot.size > 0) {
-      console.log('Sample alerts:');
-      alertsSnapshot.docs.slice(0, 3).forEach((doc, idx) => {
-        const alert = doc.data();
-        console.log(`  Alert ${idx + 1}:`, {
-          id: doc.id,
-          name: alert.name,
-          severity: alert.severity,
-          babyId: alert.babyId,
-          timestamp: alert.timestamp,
-          createdAt: alert.createdAt,
-          updatedAt: alert.updatedAt,
-          allKeys: Object.keys(alert),
+    // Fetch alerts for the baby with HARD LIMIT
+    let alertsSnapshot;
+    try {
+      alertsSnapshot = await db
+        .collection('alerts')
+        .where('babyId', '==', babyId)
+        .limit(QUERY_LIMITS.MONTHLY_ANALYTICS)
+        .get();
+    } catch (error) {
+      if (error.code === 8) {
+        console.warn('⚠️ [CareLogs] Quota exceeded fetching alerts');
+        return res.status(503).json({
+          error: 'Service Unavailable',
+          message: 'Temporarily unable to process request. Please try again.',
         });
+      }
+      throw error;
+    }
+
+    // Defensive: handle undefined snapshot
+    if (!alertsSnapshot || !alertsSnapshot.docs) {
+      return res.json({
+        success: true,
+        data: {
+          babyId,
+          month: month,
+          year: year,
+          startDate: startDate.toISOString(),
+          endDate: endDate.toISOString(),
+          alerts: { low: 0, medium: 0, high: 0, total: 0 },
+        },
       });
-    } else {
-      console.log(`⚠️ No alerts found for babyId: ${babyId}`);
     }
 
     // Filter alerts by date range in code
-    const filteredAlerts = alertsSnapshot.docs.filter((doc) => {
+    const filteredAlerts = (alertsSnapshot.docs || []).filter((doc) => {
       const alert = doc.data();
       
       // Try multiple possible timestamp field names
@@ -546,20 +677,11 @@ router.get('/alerts/monthly', verifyToken, async (req, res) => {
       }
       
       if (!alertTimestamp || isNaN(alertTimestamp.getTime())) {
-        console.log(`  ❌ Could not parse timestamp for "${alert.name}" - fields:`, {
-          timestamp: alert.timestamp,
-          createdAt: alert.createdAt,
-          updatedAt: alert.updatedAt,
-        });
         return false;
       }
       
-      const isInRange = alertTimestamp >= startDate && alertTimestamp <= endDate;
-      console.log(`  ${isInRange ? '✓' : '✗'} "${alert.name}" (${alert.severity}): ${alertTimestamp.toISOString()}`);
-      return isInRange;
+      return alertTimestamp >= startDate && alertTimestamp <= endDate;
     });
-
-    console.log(`✓ After date filtering: ${filteredAlerts.length} alerts match the date range`);
 
     // Count alerts by severity (use filtered alerts)
     const alertCounts = {
@@ -571,13 +693,10 @@ router.get('/alerts/monthly', verifyToken, async (req, res) => {
     for (const doc of filteredAlerts) {
       const alert = doc.data();
       const severity = alert.severity || 'LOW';
-      console.log(`Alert: ${alert.name}, severity: ${severity}`);
       if (alertCounts.hasOwnProperty(severity)) {
         alertCounts[severity]++;
       }
     }
-
-    console.log('Alert counts:', alertCounts);
 
     res.json({
       success: true,

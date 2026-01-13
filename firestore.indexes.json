@@ -41,6 +41,102 @@
           "order": "ASCENDING"
         }
       ]
+    },
+    {
+      "collectionGroup": "reminders",
+      "queryScope": "Collection",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "nextTriggerAt",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "reminders",
+      "queryScope": "Collection",
+      "fields": [
+        {
+          "fieldPath": "babyId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "nextTriggerAt",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "reminders",
+      "queryScope": "Collection",
+      "fields": [
+        {
+          "fieldPath": "nextTriggerAt",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "reminders",
+      "queryScope": "Collection",
+      "fields": [
+        {
+          "fieldPath": "babyId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "updated_at",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "reminders",
+      "queryScope": "Collection",
+      "fields": [
+        {
+          "fieldPath": "babyId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "medicine_name",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "dose_time",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "scheduled_for",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "dailySummary",
+      "queryScope": "Collection",
+      "fields": [
+        {
+          "fieldPath": "babyId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "date",
+          "order": "ASCENDING"
+        }
+      ]
     }
   ]
 }

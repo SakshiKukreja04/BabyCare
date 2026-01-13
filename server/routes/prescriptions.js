@@ -4,43 +4,77 @@ const { db, admin } = require('../firebaseAdmin');
 const { verifyToken } = require('../middleware/auth');
 const { extractPrescriptionData } = require('../services/medgemma');
 const { generateRemindersFor24Hours } = require('../services/reminders');
+const { babyOwnershipCache } = require('../services/memoryCache');
+
+// Query limits to prevent quota exhaustion
+const QUERY_LIMITS = {
+  PRESCRIPTION_LOGS: 50,
+  MEDICINES_PER_PRESCRIPTION: 10,
+};
+
+/**
+ * Verify baby ownership with caching
+ */
+async function verifyBabyOwnership(babyId, parentId) {
+  const cacheKey = `baby_${babyId}`;
+  const cached = babyOwnershipCache.get(cacheKey);
+  if (cached) {
+    return { valid: cached.parentId === parentId, babyData: cached };
+  }
+  
+  try {
+    const babyDoc = await db.collection('babies').doc(babyId).get();
+    if (!babyDoc.exists) return { valid: false, babyData: null };
+    const babyData = babyDoc.data();
+    babyOwnershipCache.set(cacheKey, babyData);
+    return { valid: babyData.parentId === parentId, babyData };
+  } catch (error) {
+    if (error.code === 8) {
+      console.warn('⚠️ [Prescriptions] Quota exceeded during baby ownership check');
+      return { valid: false, quotaExceeded: true };
+    }
+    throw error;
+  }
+}
 
 /**
  * GET /prescriptions/logs
  * Fetch all prescription logs for the authenticated user (parentId)
- *
- * Query params (optional):
- *   babyId: string (to filter by baby - filtered on client side)
+ * OPTIMIZED: Added hard limit to prevent quota exhaustion
  */
 router.get('/logs', verifyToken, async (req, res) => {
   try {
     const parentId = req.user.uid;
     const { babyId } = req.query;
-    console.log('📋 [Prescription Logs] GET /logs - parentId:', parentId, 'babyId:', babyId);
+    console.log('📋 [Prescription Logs] GET /logs - parentId:', parentId, 'babyId:', babyId || 'all');
     
-    // Query only by parentId - no orderBy to avoid index requirement
-    const query = db.collection('prescriptionLogs').where('parentId', '==', parentId);
+    // Query with HARD LIMIT
+    const query = db.collection('prescriptionLogs')
+      .where('parentId', '==', parentId)
+      .limit(QUERY_LIMITS.PRESCRIPTION_LOGS);
     
-    console.log('📋 [Prescription Logs] Executing query...');
     const snapshot = await query.get();
+    
+    // Defensive: handle undefined snapshot
+    if (!snapshot || !snapshot.docs || !Array.isArray(snapshot.docs)) {
+      return res.json({ success: true, logs: [] });
+    }
+    
     console.log('📋 [Prescription Logs] Query returned', snapshot.size, 'documents');
     
     let logs = snapshot.docs.map(doc => {
       const data = doc.data();
-      console.log('📋 [Prescription Logs] Document:', doc.id, 'babyId:', data.babyId, 'status:', data.status);
       return {
         id: doc.id,
         ...data,
-        // Convert Firestore Timestamp to ISO string if needed
         createdAt: data.createdAt?.toDate?.() || data.createdAt,
         updatedAt: data.updatedAt?.toDate?.() || data.updatedAt,
         confirmedAt: data.confirmedAt?.toDate?.() || data.confirmedAt,
       };
     });
 
-    // Filter by babyId if provided (client-side filtering)
+    // Filter by babyId if provided
     if (babyId) {
-      console.log('📋 [Prescription Logs] Filtering by babyId:', babyId);
       logs = logs.filter(log => log.babyId === babyId);
     }
 
@@ -54,6 +88,13 @@ router.get('/logs', verifyToken, async (req, res) => {
     console.log('✅ [Prescription Logs] Returning', logs.length, 'logs');
     res.json({ success: true, logs });
   } catch (error) {
+    if (error.code === 8) {
+      console.warn('⚠️ [Prescription Logs] Quota exceeded');
+      return res.status(503).json({ 
+        error: 'Service Unavailable', 
+        message: 'Temporarily unable to fetch logs. Please try again.' 
+      });
+    }
     console.error('❌ [Prescription Logs] Error:', error.message);
     res.status(500).json({ error: 'Internal Server Error', message: error.message || 'Failed to fetch logs' });
   }

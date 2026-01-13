@@ -225,12 +225,14 @@ router.post('/dismiss-all', verifyToken, async (req, res) => {
 
     const batch = db.batch();
     let dismissedCount = 0;
+    const BATCH_LIMIT = 50; // Hard limit per query
 
-    // Dismiss all active alerts
+    // Dismiss active alerts (with limit to prevent quota issues)
     const alertsQuery = await db.collection('alerts')
       .where('parentId', '==', parentId)
       .where('babyId', '==', babyId)
       .where('isActive', '==', true)
+      .limit(BATCH_LIMIT)
       .get();
 
     alertsQuery.docs.forEach(doc => {
@@ -242,11 +244,12 @@ router.post('/dismiss-all', verifyToken, async (req, res) => {
       dismissedCount++;
     });
 
-    // Dismiss all active care reminders
+    // Dismiss active care reminders (with limit to prevent quota issues)
     const remindersQuery = await db.collection('careReminders')
       .where('parentId', '==', parentId)
       .where('babyId', '==', babyId)
       .where('isActive', '==', true)
+      .limit(BATCH_LIMIT)
       .get();
 
     remindersQuery.docs.forEach(doc => {
